@@ -1,40 +1,656 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api } from '../api'
+import { api, connectionTarget, driverLabel } from '../api'
 import { useSession } from '../stores/session'
+import { selectStar } from '../sqlText.js'
+import Icon from '../components/Icon.vue'
+import Navigator from '../components/Navigator.vue'
+import ScriptEditor from '../components/ScriptEditor.vue'
+import ObjectView from '../components/ObjectView.vue'
+import Overview from './Overview.vue'
+import Connections from './Connections.vue'
+import Catalog from './Catalog.vue'
+import Migrations from './Migrations.vue'
+import Backups from './Backups.vue'
+
+const storageKey = 'dbgo-workbench-v1'
+const tools = {
+  overview: { title: '总览', path: '/overview' },
+  connections: { title: '连接', path: '/connections' },
+  catalog: { title: '结构', path: '/catalog' },
+  migrations: { title: '迁移', path: '/migrations' },
+  backups: { title: '备份', path: '/backups' }
+}
+const pathTool = {
+  '/': 'script',
+  '/query': 'script',
+  '/overview': 'overview',
+  '/connections': 'connections',
+  '/catalog': 'catalog',
+  '/migrations': 'migrations',
+  '/backups': 'backups'
+}
 
 const session = useSession()
 const route = useRoute()
 const router = useRouter()
-const passwordOpen = ref(false)
+const connections = ref([])
+const tabs = ref([])
+const activeId = ref('')
+const revision = ref(0)
+const selection = ref(null)
+const runNote = ref('')
+const openMenu = ref('')
+const tabMenu = ref(false)
+const context = ref(null)
+const contextEl = ref(null)
+const menuBar = ref(null)
+const navigatorRef = ref(null)
+const passwordDialog = ref(null)
+const aboutDialog = ref(null)
 const currentPassword = ref('')
 const nextPassword = ref('')
-const message = ref('')
-const error = ref('')
-const links = [
-  { to: '/', title: '总览', hint: '概况' },
-  { to: '/connections', title: '连接', hint: '数据源' },
-  { to: '/query', title: '查询', hint: 'SQL' },
-  { to: '/catalog', title: '结构', hint: '目录' },
-  { to: '/migrations', title: '迁移', hint: '版本' },
-  { to: '/backups', title: '备份', hint: '恢复' }
-]
+const passwordError = ref('')
+const navOpen = ref(localStorage.getItem('dbgo-nav-open') !== '0')
+const navWidth = ref(Math.min(560, Math.max(200, Number(localStorage.getItem('dbgo-nav-width')) || 280)))
+const showResults = ref(true)
+const editorMap = new Map()
+const zone = new Intl.DateTimeFormat('zh-CN', { timeZoneName: 'short' })
+  .formatToParts(new Date())
+  .find((part) => part.type === 'timeZoneName')?.value || ''
 
-const title = computed(() => route.meta.title || '总览')
+let scriptSeq = 1
+let routing = false
+let persist = false
+let saveTimer = 0
 
-function active(path) {
-  return path === '/' ? route.path === '/' : route.path.startsWith(path)
+const activeTab = computed(() => tabs.value.find((tab) => tab.id === activeId.value) || null)
+const sqlActive = computed(() => activeTab.value?.kind === 'sql')
+const userName = computed(() => session.profile?.display_name || session.profile?.username || '')
+const statusConnection = computed(() => {
+  const tab = activeTab.value
+  const tabId = tab && (tab.kind === 'sql' || tab.kind === 'object') ? tab.connectionId : ''
+  const selectedId = selection.value?.connection?.id || ''
+  const fallback = [...tabs.value].reverse().find((item) => (item.kind === 'sql' || item.kind === 'object') && item.connectionId)
+  const id = tabId || selectedId || fallback?.connectionId || ''
+  return connections.value.find((item) => item.id === id) || selection.value?.connection || null
+})
+const statusSchema = computed(() => {
+  const tab = activeTab.value
+  if (tab?.kind === 'sql' || tab?.kind === 'object') {
+    return tab.schema || ''
+  }
+  if (selection.value?.schema) {
+    return selection.value.schema
+  }
+  return [...tabs.value].reverse().find((item) => item.kind === 'sql' && item.schema)?.schema || ''
+})
+const menus = computed(() => [
+  {
+    id: 'file',
+    label: '文件',
+    items: [
+      { label: '新建 SQL 脚本', run: () => newScript() },
+      { label: '新建连接', run: createConnection },
+      { type: 'sep' },
+      { label: '关闭当前标签', disabled: !activeTab.value, run: () => activeTab.value && closeTab(activeTab.value) },
+      { type: 'sep' },
+      { label: '退出', run: logout }
+    ]
+  },
+  {
+    id: 'edit',
+    label: '编辑',
+    items: [
+      { label: '修改密码', run: openPassword }
+    ]
+  },
+  {
+    id: 'nav',
+    label: '导航',
+    items: [
+      { label: '刷新', run: () => navigatorRef.value?.refresh() },
+      { label: '全部折叠', run: () => navigatorRef.value?.collapseAll() },
+      { label: '过滤对象', run: focusFilter }
+    ]
+  },
+  {
+    id: 'search',
+    label: '搜索',
+    items: [
+      { label: '在导航中查找', run: focusFilter }
+    ]
+  },
+  {
+    id: 'sql',
+    label: 'SQL 编辑器',
+    items: [
+      { label: '执行', hint: 'Ctrl+Enter', disabled: !sqlActive.value, run: runActive },
+      { label: '新建脚本', run: () => newScript() },
+      { label: sqlActive.value && activeTab.value.readOnly ? '取消只读' : '设为只读', disabled: !sqlActive.value, run: toggleReadOnly },
+      { label: showResults.value ? '隐藏结果' : '显示结果', run: () => { showResults.value = !showResults.value } }
+    ]
+  },
+  {
+    id: 'database',
+    label: '数据库',
+    items: [
+      { label: '连接管理', run: () => openTool('connections') },
+      { label: '结构浏览', run: () => openTool('catalog') },
+      { label: '迁移', run: () => openTool('migrations') },
+      { label: '备份', run: () => openTool('backups') },
+      { type: 'sep' },
+      { label: '测试连接', disabled: !statusConnection.value, run: () => statusConnection.value && testConnection(statusConnection.value) },
+      { label: '刷新导航', run: () => navigatorRef.value?.refresh() }
+    ]
+  },
+  {
+    id: 'window',
+    label: '窗口',
+    items: [
+      { label: (navOpen.value ? '✓ ' : '') + '数据库导航', run: () => { navOpen.value = !navOpen.value } },
+      { label: (showResults.value ? '✓ ' : '') + '结果面板', run: () => { showResults.value = !showResults.value } },
+      { type: 'sep' },
+      { label: '总览', run: () => openTool('overview') }
+    ]
+  },
+  {
+    id: 'help',
+    label: '帮助',
+    items: [
+      { label: '关于 DBGo', run: () => aboutDialog.value?.showModal() }
+    ]
+  }
+])
+const contextItems = computed(() => {
+  const node = context.value?.node
+  if (!node) {
+    return []
+  }
+  const items = []
+  if (node.kind === 'table' || node.kind === 'view') {
+    items.push(
+      { label: '查看数据', run: () => openData(node) },
+      { label: '查看结构', run: () => openObject(node) },
+      { label: '在当前脚本中查询', run: () => fillSelect(node) },
+      { type: 'sep' }
+    )
+  }
+  if (node.connection && (node.kind === 'connection' || node.kind === 'schema' || node.kind === 'table' || node.kind === 'view')) {
+    items.push({ label: '新建 SQL 脚本', run: () => newScript({ connectionId: node.connection.id, schema: node.schema || '' }) })
+  }
+  if (node.kind === 'connection') {
+    items.push(
+      { label: '测试连接', run: () => testConnection(node.connection) },
+      { label: '迁移', run: () => openTool('migrations', { connectionId: node.connection.id }) },
+      { label: '备份', run: () => openTool('backups', { connectionId: node.connection.id }) },
+      { type: 'sep' },
+      { label: '编辑连接', run: () => editConnection(node.connection) },
+      { label: '删除连接', danger: true, run: () => removeConnection(node.connection) }
+    )
+  }
+  if (node.load) {
+    items.push({ type: 'sep' }, { label: '刷新', run: () => navigatorRef.value?.refresh(node) })
+  }
+  return items.filter((item, index, list) => !(item.type === 'sep' && (index === 0 || index === list.length - 1 || list[index - 1]?.type === 'sep')))
+})
+
+watch(navOpen, (value) => localStorage.setItem('dbgo-nav-open', value ? '1' : '0'))
+watch(navWidth, (value) => localStorage.setItem('dbgo-nav-width', String(value)))
+watch(activeTab, (tab) => {
+  document.title = `${tab?.title || 'DBGo'} - DBGo`
+}, { immediate: true })
+watch(tabs, scheduleSave, { deep: true })
+watch(activeId, scheduleSave)
+
+function scheduleSave() {
+  if (!persist) {
+    return
+  }
+  window.clearTimeout(saveTimer)
+  saveTimer = window.setTimeout(saveState, 200)
 }
 
-async function logout() {
-  await session.logout()
-  await router.push('/login')
+function saveState() {
+  const payload = {
+    seq: scriptSeq,
+    activeId: activeId.value,
+    tabs: tabs.value.map((tab) => ({ ...tab, command: null, autorun: 0 }))
+  }
+  sessionStorage.setItem(storageKey, JSON.stringify(payload))
+}
+
+function sanitize(tab) {
+  if (!tab || typeof tab !== 'object') {
+    return null
+  }
+  if (tab.kind === 'sql') {
+    const match = /^script-(\d+)$/.exec(String(tab.id || ''))
+    if (match) {
+      scriptSeq = Math.max(scriptSeq, Number(match[1]) + 1)
+    }
+    return {
+      id: String(tab.id || `script-${scriptSeq++}`),
+      kind: 'sql',
+      title: String(tab.title || 'Script'),
+      closable: true,
+      connectionId: String(tab.connectionId || ''),
+      schema: String(tab.schema || ''),
+      sql: String(tab.sql || ''),
+      readOnly: tab.readOnly !== false,
+      maxRows: Number(tab.maxRows || 100),
+      autorun: 0
+    }
+  }
+  if (tab.kind === 'object' && tab.table && tab.connectionId) {
+    return {
+      id: String(tab.id),
+      kind: 'object',
+      title: String(tab.title || tab.table),
+      closable: true,
+      connectionId: String(tab.connectionId),
+      schema: String(tab.schema || ''),
+      table: String(tab.table),
+      driver: String(tab.driver || '')
+    }
+  }
+  if (tab.kind === 'tool' && tools[tab.tool]) {
+    return {
+      id: `tool-${tab.tool}`,
+      kind: 'tool',
+      tool: tab.tool,
+      title: tools[tab.tool].title,
+      closable: true,
+      preferredConnection: String(tab.preferredConnection || ''),
+      command: null
+    }
+  }
+  return null
+}
+
+function restore() {
+  try {
+    const raw = sessionStorage.getItem(storageKey)
+    if (!raw) {
+      return false
+    }
+    const data = JSON.parse(raw)
+    const next = (data.tabs || []).map(sanitize).filter(Boolean)
+    if (!next.length) {
+      return false
+    }
+    tabs.value = next
+    activeId.value = next.some((tab) => tab.id === data.activeId) ? data.activeId : next[0].id
+    scriptSeq = Math.max(scriptSeq, Number(data.seq) || 1)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function go(path) {
+  if (!path || route.path === path) {
+    return
+  }
+  routing = true
+  router.push(path).finally(() => {
+    routing = false
+  })
+}
+
+function newScript(partial = {}) {
+  const number = scriptSeq++
+  const connectionId = partial.connectionId || selection.value?.connection?.id || connections.value[0]?.id || ''
+  let schema = partial.schema || ''
+  if (!partial.schema && !partial.connectionId && selection.value?.schema && selection.value.connection?.id === connectionId) {
+    schema = selection.value.schema
+  }
+  const tab = {
+    id: `script-${number}`,
+    kind: 'sql',
+    title: partial.title || `Script-${number}`,
+    closable: true,
+    connectionId,
+    schema,
+    sql: partial.sql || '',
+    readOnly: partial.readOnly !== false,
+    maxRows: 100,
+    autorun: partial.autorun || 0
+  }
+  tabs.value.push(tab)
+  activeId.value = tab.id
+  if (!partial.skipRoute) {
+    go('/query')
+  }
+  return tab
+}
+
+function openTool(tool, opts = {}) {
+  const meta = tools[tool]
+  if (!meta) {
+    return
+  }
+  let tab = tabs.value.find((item) => item.kind === 'tool' && item.tool === tool)
+  if (!tab) {
+    tab = {
+      id: `tool-${tool}`,
+      kind: 'tool',
+      tool,
+      title: meta.title,
+      closable: true,
+      preferredConnection: opts.connectionId || '',
+      command: opts.command || null
+    }
+    tabs.value.push(tab)
+  } else {
+    if (opts.connectionId) {
+      tab.preferredConnection = opts.connectionId
+    }
+    if (opts.command) {
+      tab.command = opts.command
+    }
+  }
+  activeId.value = tab.id
+  if (!opts.fromRoute) {
+    go(meta.path)
+  }
+}
+
+function applyRoute(path) {
+  const tool = pathTool[path] || 'script'
+  if (tool === 'script') {
+    const current = tabs.value.find((tab) => tab.id === activeId.value)
+    if (current && current.kind !== 'tool') {
+      return
+    }
+    const script = [...tabs.value].reverse().find((tab) => tab.kind === 'sql' || tab.kind === 'object')
+    if (script) {
+      activeId.value = script.id
+      return
+    }
+    newScript({ skipRoute: true })
+    return
+  }
+  openTool(tool, { fromRoute: true })
+}
+
+function activate(tab) {
+  activeId.value = tab.id
+  tabMenu.value = false
+  if (tab.kind === 'tool') {
+    go(tools[tab.tool].path)
+    return
+  }
+  if (route.path !== '/' && route.path !== '/query') {
+    go('/query')
+  }
+}
+
+function closeTab(tab) {
+  const index = tabs.value.findIndex((item) => item.id === tab.id)
+  if (index < 0) {
+    return
+  }
+  const wasActive = activeId.value === tab.id
+  tabs.value.splice(index, 1)
+  editorMap.delete(tab.id)
+  if (!wasActive) {
+    return
+  }
+  const next = tabs.value[index] || tabs.value[index - 1]
+  if (!next) {
+    activeId.value = ''
+    go('/')
+    return
+  }
+  activate(next)
+}
+
+function bindEditor(id, el) {
+  if (el) {
+    editorMap.set(id, el)
+  } else {
+    editorMap.delete(id)
+  }
+}
+
+function runActive() {
+  const tab = activeTab.value
+  if (tab?.kind === 'sql') {
+    editorMap.get(tab.id)?.run()
+  }
+}
+
+function toggleReadOnly() {
+  const tab = activeTab.value
+  if (tab?.kind === 'sql') {
+    tab.readOnly = !tab.readOnly
+  }
+}
+
+function tabIcon(tab) {
+  if (tab.kind === 'object') return 'table'
+  if (tab.kind === 'sql') return 'sql'
+  if (tab.tool === 'connections') return 'database'
+  if (tab.tool === 'migrations') return 'migration'
+  if (tab.tool === 'backups') return 'backup'
+  if (tab.tool === 'catalog') return 'catalog'
+  return 'overview'
+}
+
+function onSelect(node) {
+  selection.value = node
+  const tab = activeTab.value
+  if (!tab || tab.kind !== 'sql' || !node.connection) {
+    return
+  }
+  if (tab.connectionId !== node.connection.id) {
+    tab.schema = node.schema || ''
+    tab.connectionId = node.connection.id
+  } else if (node.schema) {
+    tab.schema = node.schema
+  }
+}
+
+function openData(node) {
+  newScript({
+    title: node.table,
+    connectionId: node.connection.id,
+    schema: node.schema || '',
+    sql: selectStar(node.connection.driver, node.schema, node.table),
+    readOnly: true,
+    autorun: 1
+  })
+}
+
+function openObject(node) {
+  const id = `object-${node.connection.id}-${node.schema}-${node.table}`
+  let tab = tabs.value.find((item) => item.id === id)
+  if (!tab) {
+    tab = {
+      id,
+      kind: 'object',
+      title: node.table,
+      closable: true,
+      connectionId: node.connection.id,
+      schema: node.schema || '',
+      table: node.table,
+      driver: node.connection.driver
+    }
+    tabs.value.push(tab)
+  }
+  activeId.value = tab.id
+  if (route.path !== '/' && route.path !== '/query') {
+    go('/query')
+  }
+}
+
+function queryObject(tab) {
+  const connection = connections.value.find((item) => item.id === tab.connectionId)
+  newScript({
+    title: tab.table,
+    connectionId: tab.connectionId,
+    schema: tab.schema,
+    sql: selectStar(connection?.driver || tab.driver, tab.schema, tab.table),
+    readOnly: true,
+    autorun: 1
+  })
+}
+
+function fillSelect(node) {
+  const sql = selectStar(node.connection.driver, node.schema, node.table)
+  const tab = activeTab.value?.kind === 'sql' ? activeTab.value : newScript({ connectionId: node.connection.id, schema: node.schema || '', skipRoute: true })
+  tab.schema = node.schema || ''
+  tab.connectionId = node.connection.id
+  tab.sql = tab.sql ? `${tab.sql.replace(/\s*$/, '')}\n${sql}` : sql
+  activeId.value = tab.id
+  if (route.path !== '/' && route.path !== '/query') {
+    go('/query')
+  }
+}
+
+async function testConnection(row) {
+  runNote.value = `正在测试 ${row.name}`
+  try {
+    const result = (await api('/api/connection/test', { id: row.id })).data
+    runNote.value = `${result.name} 可连接，版本 ${result.server_version || '—'}，耗时 ${result.latency_ms ?? 0} ms`
+  } catch (err) {
+    runNote.value = err.message
+  }
+}
+
+async function removeConnection(row) {
+  if (!window.confirm(`删除连接「${row.name}」？已保存的查询历史和备份记录会保留。`)) {
+    return
+  }
+  try {
+    await api('/api/connection/delete', { id: row.id })
+    if (selection.value?.connection?.id === row.id) {
+      selection.value = null
+    }
+    await reloadConnections()
+    runNote.value = `已删除连接 ${row.name}`
+  } catch (err) {
+    runNote.value = err.message
+  }
+}
+
+function createConnection() {
+  openTool('connections', { command: { type: 'create', seq: Date.now() } })
+}
+
+function editConnection(row) {
+  openTool('connections', {
+    connectionId: row.id,
+    command: { type: 'edit', id: row.id, seq: Date.now() }
+  })
+}
+
+async function reloadConnections() {
+  const page = await api('/api/connection/search', { page: 1, page_size: 100, sort: 'name', direction: 'asc' })
+  connections.value = page.data || []
+  revision.value += 1
+  for (const tab of tabs.value) {
+    if (tab.kind === 'sql' && !tab.connectionId && connections.value[0]) {
+      tab.connectionId = connections.value[0].id
+    }
+  }
+}
+
+function focusFilter() {
+  navOpen.value = true
+  nextTick(() => navigatorRef.value?.focusFilter())
+}
+
+function clickMenu(id) {
+  openMenu.value = openMenu.value === id ? '' : id
+  context.value = null
+  tabMenu.value = false
+}
+
+function hoverMenu(id) {
+  if (openMenu.value) {
+    openMenu.value = id
+  }
+}
+
+function runItem(item) {
+  openMenu.value = ''
+  if (!item.disabled) {
+    item.run()
+  }
+}
+
+async function onContext(payload) {
+  openMenu.value = ''
+  tabMenu.value = false
+  context.value = { x: payload.x, y: payload.y, node: payload.node }
+  await nextTick()
+  if (!contextItems.value.length) {
+    context.value = null
+    return
+  }
+  const el = contextEl.value
+  if (!el || !context.value) {
+    return
+  }
+  const rect = el.getBoundingClientRect()
+  context.value = {
+    ...context.value,
+    x: rect.right > window.innerWidth ? Math.max(8, window.innerWidth - rect.width - 8) : context.value.x,
+    y: rect.bottom > window.innerHeight ? Math.max(8, window.innerHeight - rect.height - 8) : context.value.y
+  }
+}
+
+function runContext(item) {
+  context.value = null
+  item.run()
+}
+
+function startNavResize(event) {
+  const startX = event.clientX
+  const startW = navWidth.value
+  function move(next) {
+    navWidth.value = Math.min(560, Math.max(200, startW + next.clientX - startX))
+  }
+  function up() {
+    window.removeEventListener('mousemove', move)
+    window.removeEventListener('mouseup', up)
+  }
+  window.addEventListener('mousemove', move)
+  window.addEventListener('mouseup', up)
+}
+
+function onPointer(event) {
+  if (openMenu.value && menuBar.value && !menuBar.value.contains(event.target)) {
+    openMenu.value = ''
+  }
+  if (tabMenu.value && !event.target.closest?.('.tab-menu') && !event.target.closest?.('.tab-more')) {
+    tabMenu.value = false
+  }
+  if (context.value && contextEl.value && !contextEl.value.contains(event.target)) {
+    context.value = null
+  }
+}
+
+function onKeydown(event) {
+  if (event.key === 'Escape') {
+    openMenu.value = ''
+    context.value = null
+    tabMenu.value = false
+  }
+}
+
+function openPassword() {
+  passwordError.value = ''
+  currentPassword.value = ''
+  nextPassword.value = ''
+  passwordDialog.value?.showModal()
 }
 
 async function changePassword() {
-  error.value = ''
-  message.value = ''
+  passwordError.value = ''
   try {
     await api('/api/auth/password', {
       current_password: currentPassword.value,
@@ -43,8 +659,13 @@ async function changePassword() {
     session.profile = null
     await router.push('/login')
   } catch (err) {
-    error.value = err.message
+    passwordError.value = err.message
   }
+}
+
+async function logout() {
+  await session.logout()
+  await router.push('/login')
 }
 
 function onUnauthorized() {
@@ -54,56 +675,195 @@ function onUnauthorized() {
   }
 }
 
-onMounted(() => window.addEventListener('dbgo-unauthorized', onUnauthorized))
-onBeforeUnmount(() => window.removeEventListener('dbgo-unauthorized', onUnauthorized))
+watch(() => route.path, (path) => {
+  if (!routing) {
+    applyRoute(path)
+  }
+})
+
+onMounted(async () => {
+  window.addEventListener('dbgo-unauthorized', onUnauthorized)
+  window.addEventListener('pointerdown', onPointer)
+  window.addEventListener('keydown', onKeydown)
+  if (!restore()) {
+    newScript({ skipRoute: true })
+  }
+  try {
+    await reloadConnections()
+  } catch (err) {
+    runNote.value = err.message
+  }
+  applyRoute(route.path)
+  persist = true
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('dbgo-unauthorized', onUnauthorized)
+  window.removeEventListener('pointerdown', onPointer)
+  window.removeEventListener('keydown', onKeydown)
+  window.clearTimeout(saveTimer)
+})
 </script>
 
 <template>
-  <div class="shell">
-    <aside class="side">
-      <div class="brand">
-        <div class="mark">Db</div>
-        <div>
-          <strong>DBGo</strong>
-          <small>数据库控制台</small>
+  <div class="wb">
+    <header ref="menuBar" class="menubar" @mouseleave="openMenu = ''">
+      <div v-for="menu in menus" :key="menu.id" class="menu" @mouseenter="hoverMenu(menu.id)">
+        <button type="button" class="menu-label" :class="{ open: openMenu === menu.id }" @click="clickMenu(menu.id)">{{ menu.label }}</button>
+        <div v-if="openMenu === menu.id" class="menu-pop" role="menu">
+          <template v-for="(item, index) in menu.items" :key="menu.id + index">
+            <hr v-if="item.type === 'sep'" />
+            <button v-else type="button" role="menuitem" :disabled="item.disabled" @click="runItem(item)">
+              <span>{{ item.label }}</span>
+              <span v-if="item.hint" class="menu-hint">{{ item.hint }}</span>
+            </button>
+          </template>
         </div>
       </div>
-      <nav class="nav">
-        <router-link v-for="link in links" :key="link.to" :to="link.to" :class="{ active: active(link.to) }">
-          {{ link.title }}
-          <small>{{ link.hint }}</small>
-        </router-link>
-      </nav>
-      <div class="side-user">
-        <div>{{ session.profile?.display_name || session.profile?.username }}</div>
-        <div class="actions">
-          <button class="btn" type="button" @click="passwordOpen = !passwordOpen">修改密码</button>
-          <button class="btn" type="button" @click="logout">退出</button>
+      <div class="menu-spacer"></div>
+      <div class="menu user-menu">
+        <button type="button" class="menu-label" @click="clickMenu('user')">{{ userName || '账号' }}</button>
+        <div v-if="openMenu === 'user'" class="menu-pop user-pop" role="menu">
+          <button type="button" role="menuitem" @click="runItem({ run: openPassword })">修改密码</button>
+          <button type="button" role="menuitem" @click="runItem({ run: logout })">退出</button>
         </div>
       </div>
-    </aside>
-    <section class="main">
-      <header class="topbar">
-        <div>
-          <p class="muted">控制台</p>
-          <h1>{{ title }}</h1>
+    </header>
+
+    <div class="toolbar-main">
+      <button class="icon-btn" type="button" title="新建 SQL 脚本" @click="newScript()"><Icon name="sql" /></button>
+      <button class="icon-btn" type="button" title="新建连接" @click="createConnection"><Icon name="database" /></button>
+      <button class="icon-btn" type="button" title="刷新导航" @click="navigatorRef?.refresh()"><Icon name="refresh" /></button>
+      <span class="tb-sep"></span>
+      <button class="icon-btn tb-play" type="button" title="执行 SQL（Ctrl+Enter）" :disabled="!sqlActive" @click="runActive"><Icon name="play" /></button>
+      <span class="tb-sep"></span>
+      <button class="icon-btn" type="button" title="总览" @click="openTool('overview')"><Icon name="overview" /></button>
+      <button class="icon-btn" type="button" title="连接" @click="openTool('connections')"><Icon name="database" /></button>
+      <button class="icon-btn" type="button" title="结构" @click="openTool('catalog')"><Icon name="catalog" /></button>
+      <button class="icon-btn" type="button" title="迁移" @click="openTool('migrations')"><Icon name="migration" /></button>
+      <button class="icon-btn" type="button" title="备份" @click="openTool('backups')"><Icon name="backup" /></button>
+      <span class="tb-sep"></span>
+      <button class="icon-btn" type="button" :title="navOpen ? '隐藏数据库导航' : '显示数据库导航'" @click="navOpen = !navOpen"><Icon name="nav" /></button>
+    </div>
+
+    <div class="wb-body">
+      <Navigator
+        v-show="navOpen"
+        ref="navigatorRef"
+        class="wb-nav"
+        :style="{ width: navWidth + 'px' }"
+        :connections="connections"
+        @select="onSelect"
+        @context="onContext"
+        @open-data="openData"
+        @reload="reloadConnections"
+        @collapse="navOpen = false"
+        @create-connection="createConnection"
+      />
+      <div v-if="navOpen" class="splitter-v" @mousedown="startNavResize"></div>
+      <section class="wb-main">
+        <div class="wb-tabs" role="tablist">
+          <button
+            v-for="tab in tabs"
+            :key="tab.id"
+            type="button"
+            role="tab"
+            class="wb-tab"
+            :class="{ active: tab.id === activeId }"
+            :aria-selected="tab.id === activeId"
+            :title="tab.title"
+            @click="activate(tab)"
+          >
+            <Icon :name="tabIcon(tab)" />
+            <span>{{ tab.title }}</span>
+            <span v-if="tab.closable" class="tab-x" title="关闭" @click.stop="closeTab(tab)">×</span>
+          </button>
+          <span class="tab-gap"></span>
+          <button class="icon-btn tab-more" type="button" title="打开的编辑器" @click="tabMenu = !tabMenu">▾</button>
+          <div v-if="tabMenu" class="menu-pop tab-menu">
+            <button v-for="tab in tabs" :key="'list-' + tab.id" type="button" @click="activate(tab)">{{ tab.title }}</button>
+            <p v-if="!tabs.length" class="muted">没有打开的标签</p>
+          </div>
         </div>
+        <div class="wb-stage">
+          <div v-if="!activeTab" class="wb-empty">
+            <p>没有打开的编辑器</p>
+            <button class="btn btn-primary" type="button" @click="newScript()">新建 SQL 脚本</button>
+          </div>
+          <div v-for="tab in tabs" v-show="tab.id === activeId" :key="tab.id" class="wb-pane">
+            <ScriptEditor
+              v-if="tab.kind === 'sql'"
+              :ref="(el) => bindEditor(tab.id, el)"
+              :tab="tab"
+              :connections="connections"
+              :show-results="showResults"
+              @ran="runNote = $event"
+              @close-results="showResults = false"
+            />
+            <ObjectView
+              v-else-if="tab.kind === 'object'"
+              :connection-id="tab.connectionId"
+              :schema="tab.schema"
+              :table="tab.table"
+              :driver="tab.driver"
+              @query="queryObject(tab)"
+            />
+            <div v-else class="tool-scroll">
+              <Overview v-if="tab.tool === 'overview'" />
+              <Connections v-else-if="tab.tool === 'connections'" :command="tab.command" :revision="revision" @changed="reloadConnections" />
+              <Catalog v-else-if="tab.tool === 'catalog'" :preferred-connection="tab.preferredConnection" :revision="revision" />
+              <Migrations v-else-if="tab.tool === 'migrations'" :preferred-connection="tab.preferredConnection" :revision="revision" />
+              <Backups v-else-if="tab.tool === 'backups'" :preferred-connection="tab.preferredConnection" :revision="revision" />
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <footer class="statusbar">
+      <span>{{ statusConnection ? '数据库: ' + statusConnection.name : '数据库: 未选择' }}</span>
+      <span v-if="statusConnection" class="status-target">{{ connectionTarget(statusConnection) }}</span>
+      <span class="status-note">{{ runNote }}</span>
+      <span class="status-right">
+        <span v-if="statusSchema">{{ statusSchema }}</span>
+        <span v-if="statusConnection">{{ driverLabel(statusConnection.driver) }}</span>
+        <span>{{ zone }}</span>
+        <span>zh_CN</span>
+      </span>
+    </footer>
+
+    <div v-if="context" ref="contextEl" class="ctx" :style="{ left: context.x + 'px', top: context.y + 'px' }" role="menu">
+      <template v-for="(item, index) in contextItems" :key="index">
+        <hr v-if="item.type === 'sep'" />
+        <button v-else type="button" :class="{ danger: item.danger }" @click="runContext(item)">{{ item.label }}</button>
+      </template>
+    </div>
+
+    <dialog ref="passwordDialog" class="modal">
+      <form class="stack" @submit.prevent="changePassword">
+        <h2>修改密码</h2>
+        <p class="muted">保存后当前会话会失效，需要重新登录。</p>
+        <p v-if="passwordError" class="notice">{{ passwordError }}</p>
+        <label class="field"><span>当前密码</span><input v-model="currentPassword" type="password" required /></label>
+        <label class="field"><span>新密码</span><input v-model="nextPassword" type="password" minlength="8" required /></label>
         <div class="actions">
-          <button class="btn" type="button" @click="logout">退出</button>
-        </div>
-      </header>
-      <div v-if="passwordOpen" class="page">
-        <form class="card stack" @submit.prevent="changePassword">
-          <h2>修改密码</h2>
-          <p class="muted">保存后当前会话会失效，需要重新登录。</p>
-          <p v-if="error" class="notice">{{ error }}</p>
-          <p v-if="message" class="notice ok">{{ message }}</p>
-          <label class="field"><span>当前密码</span><input v-model="currentPassword" type="password" required /></label>
-          <label class="field"><span>新密码</span><input v-model="nextPassword" type="password" minlength="8" required /></label>
           <button class="btn btn-primary" type="submit">保存并重新登录</button>
-        </form>
-      </div>
-      <router-view v-else />
-    </section>
+          <button class="btn" type="button" @click="passwordDialog.close()">取消</button>
+        </div>
+      </form>
+    </dialog>
+
+    <router-view />
+
+    <dialog ref="aboutDialog" class="modal">
+      <form class="stack" @submit.prevent="aboutDialog.close()">
+        <h2>关于 DBGo</h2>
+        <p>网页版数据库工作台。左侧浏览连接和对象，中间用 SQL 脚本查询，迁移和备份从数据库菜单进入。</p>
+        <p class="muted">支持 SQLite、MySQL、PostgreSQL 和 SQL Server。查询默认只读，写入前取消只读。</p>
+        <div class="actions">
+          <button class="btn" type="submit">关闭</button>
+        </div>
+      </form>
+    </dialog>
   </div>
 </template>

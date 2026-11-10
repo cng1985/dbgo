@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { api, driverLabel, drivers, formatTime } from '../api'
 
 const rows = ref([])
@@ -10,6 +10,11 @@ const error = ref('')
 const notice = ref('')
 const dialog = ref(null)
 const form = reactive(blank())
+const props = defineProps({
+  command: { type: Object, default: null },
+  revision: { type: Number, default: 0 }
+})
+const emit = defineEmits(['changed'])
 const network = computed(() => form.driver !== 'sqlite')
 
 function blank() {
@@ -46,7 +51,7 @@ async function load() {
 function openCreate() {
   Object.assign(form, blank())
   notice.value = ''
-  dialog.value.showModal()
+  dialog.value?.showModal()
 }
 
 async function openEdit(row) {
@@ -84,6 +89,7 @@ async function save() {
     }
     dialog.value.close()
     await load()
+    emit('changed')
   } catch (err) {
     error.value = err.message
   }
@@ -108,6 +114,7 @@ async function remove(row) {
   try {
     await api('/api/connection/delete', { id: row.id })
     await load()
+    emit('changed')
   } catch (err) {
     error.value = err.message
   }
@@ -119,6 +126,28 @@ function target(row) {
   }
   return `${row.host}:${row.port}/${row.database_name}`
 }
+
+watch(() => props.command, async (command) => {
+  if (!command?.seq) {
+    return
+  }
+  await nextTick()
+  if (!dialog.value) {
+    await nextTick()
+  }
+  if (command.type === 'create') {
+    openCreate()
+  } else if (command.type === 'edit' && command.id) {
+    await openEdit({ id: command.id })
+  }
+}, { immediate: true, flush: 'post' })
+
+watch(() => props.revision, (value, previous) => {
+  if (previous === undefined || value === previous) {
+    return
+  }
+  load()
+})
 
 onMounted(load)
 </script>

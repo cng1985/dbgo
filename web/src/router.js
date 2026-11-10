@@ -2,12 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useSession } from './stores/session'
 import Login from './views/Login.vue'
 import Shell from './views/Shell.vue'
-import Overview from './views/Overview.vue'
-import Connections from './views/Connections.vue'
-import Query from './views/Query.vue'
-import Catalog from './views/Catalog.vue'
-import Migrations from './views/Migrations.vue'
-import Backups from './views/Backups.vue'
+
+const outlet = { name: 'RouteOutlet', render: () => null }
 
 const router = createRouter({
   history: createWebHistory(),
@@ -17,12 +13,13 @@ const router = createRouter({
       path: '/',
       component: Shell,
       children: [
-        { path: '', component: Overview, meta: { title: '总览' } },
-        { path: 'connections', component: Connections, meta: { title: '连接' } },
-        { path: 'query', component: Query, meta: { title: '查询' } },
-        { path: 'catalog', component: Catalog, meta: { title: '结构' } },
-        { path: 'migrations', component: Migrations, meta: { title: '迁移' } },
-        { path: 'backups', component: Backups, meta: { title: '备份' } }
+        { path: '', component: outlet, meta: { title: 'SQL 编辑器', tool: 'script' } },
+        { path: 'overview', component: outlet, meta: { title: '总览', tool: 'overview' } },
+        { path: 'connections', component: outlet, meta: { title: '连接', tool: 'connections' } },
+        { path: 'query', component: outlet, meta: { title: 'SQL 编辑器', tool: 'script' } },
+        { path: 'catalog', component: outlet, meta: { title: '结构', tool: 'catalog' } },
+        { path: 'migrations', component: outlet, meta: { title: '迁移', tool: 'migrations' } },
+        { path: 'backups', component: outlet, meta: { title: '备份', tool: 'backups' } }
       ]
     }
   ]

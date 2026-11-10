@@ -7,13 +7,15 @@ const props = defineProps({
   driver: { type: String, default: '' },
   schema: { type: String, default: '' },
   schemas: { type: Array, default: () => [] },
-  tables: { type: Array, default: () => [] }
+  tables: { type: Array, default: () => [] },
+  fill: { type: Boolean, default: false }
 })
 const emit = defineEmits(['update:modelValue', 'run'])
 
 const root = ref(null)
 const input = ref(null)
 const backdrop = ref(null)
+const gutter = ref(null)
 const menu = ref(null)
 const text = ref(props.modelValue || '')
 const items = ref([])
@@ -25,6 +27,10 @@ const kindLabel = { keyword: '关键字', table: '表', column: '字段', schema
 let held = false
 
 const html = computed(() => highlightSQL(text.value, props.driver, props.tables))
+const lineNumbers = computed(() => {
+  const count = Math.max(1, text.value.split('\n').length)
+  return Array.from({ length: count }, (_, index) => String(index + 1)).join('\n')
+})
 const rows = computed(() => {
   const list = []
   let section = ''
@@ -76,6 +82,9 @@ function syncScroll() {
   }
   backdrop.value.scrollTop = input.value.scrollTop
   backdrop.value.scrollLeft = input.value.scrollLeft
+  if (gutter.value) {
+    gutter.value.scrollTop = input.value.scrollTop
+  }
 }
 
 function refreshSuggest(force) {
@@ -288,7 +297,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="root" class="sql-editor" translate="no">
+  <div ref="root" class="sql-editor" :class="{ 'sql-editor-fill': fill }" translate="no">
+    <div ref="gutter" class="sql-gutter" aria-hidden="true">{{ lineNumbers }}</div>
     <div class="sql-surface">
       <pre ref="backdrop" class="sql-backdrop" aria-hidden="true" v-html="html"></pre>
       <textarea
@@ -309,7 +319,7 @@ onBeforeUnmount(() => {
         @scroll="syncScroll"
         @blur="onBlur"
       ></textarea>
-      <div v-if="!text" class="sql-placeholder">输入 SQL，提示关键字、表和字段</div>
+      <div v-if="!text" class="sql-placeholder">输入 SQL，Ctrl+Space 提示</div>
     </div>
     <Teleport to="body">
     <ul v-if="open && items.length" ref="menu" class="sql-suggest" role="listbox" :style="menuStyle">

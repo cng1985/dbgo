@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { highlightSQL, quoteIdent, suggestSQL } from './sqlEditor.js'
+import { selectStar } from './sqlText.js'
 
 const tables = [
   {
@@ -138,4 +139,10 @@ test('关键字和带空格的名称会按驱动加引号', () => {
     schema: 'app'
   })
   assert.equal(odd.items.find((item) => item.kind === 'table').insert, '`order`')
+})
+
+test('从对象树生成的查询会给关键字加引号', () => {
+  assert.equal(selectStar('postgres', 'public', 'order'), 'select * from public."order"')
+  assert.equal(selectStar('mysql', 'app', 'order'), 'select * from app.`order`')
+  assert.equal(selectStar('sqlite', '', 'city'), 'select * from city')
 })

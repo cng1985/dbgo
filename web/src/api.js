@@ -91,6 +91,18 @@ export function driverLabel(value) {
   return drivers.find((item) => item.value === value)?.label || value || '—'
 }
 
+export function connectionTarget(row) {
+  if (!row) {
+    return ''
+  }
+  if (row.driver === 'sqlite') {
+    return row.sqlite_path || 'sqlite'
+  }
+  const host = row.host || ''
+  const port = Number(row.port || 0)
+  return port > 0 ? `${host}:${port}` : host
+}
+
 export const statusText = {
   success: '成功',
   failed: '失败',
