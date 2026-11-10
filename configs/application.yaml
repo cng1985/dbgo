@@ -1,0 +1,43 @@
+app:
+  name: dbgo
+  data_dir: ./data
+server:
+  host: 127.0.0.1
+  port: 8080
+  read_header_timeout: 5s
+  idle_timeout: 60s
+  max_header_bytes: 1048576
+  shutdown_timeout: 30s
+  request_timeout: 30s
+  long_request_timeout: 2m
+  sse_timeout: 15m
+  max_body_bytes: 2097152
+  trusted_proxies: []
+  rate_per_minute: 120
+database:
+  enabled: true
+  driver: sqlite
+  max_open_conns: 1
+  max_idle_conns: 1
+  conn_max_lifetime: 30m
+  batch_size: 100
+  sqlite:
+    path: app.db
+    foreign_keys: true
+    busy_timeout: 5s
+    journal_mode: DELETE
+auth:
+  enabled: true
+  session_ttl: 8h
+  cookie_secure: false
+  admin_username: admin
+  login_rate_per_minute: 10
+logging:
+  level: info
+  format: json
+query:
+  max_rows: 1000
+  max_sql_bytes: 100000
+backup:
+  max_rows: 50000
+  max_bytes: 33554432
