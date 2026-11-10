@@ -6,7 +6,7 @@ DBGo 控制台按业务能力拆成子模块。父目录只做组合，子模块
 | --- | --- | --- |
 | connection | 保存并测试 MySQL、PostgreSQL、SQL Server、SQLite 连接 | `db_connection` |
 | query | 在选定连接上执行 SQL，并保留查询历史 | `query_history` |
-| catalog | 只读查看模式、表、字段和索引 | 不落本地库 |
+| catalog | 只读查看模式、表、字段和索引，并为查询编辑器提供结构提示 | 不落本地库 |
 | migration | 管理目标库的版本化升级与回滚脚本 | `data_migration` |
 | backup | 生成、下载、恢复逻辑备份；SQLite 另支持一致的二进制副本 | `data_backup` 与 `data/backups` |
 | overview | 汇总数量和最近查询 | 不拥有表，只调用其他模块的查询 |

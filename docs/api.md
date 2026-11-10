@@ -59,6 +59,7 @@ SQLite 的 `sqlite_path` 可以是相对数据目录的路径。网络库需要�
 | `POST /api/catalog/tables` | 表 |
 | `POST /api/catalog/columns` | 字段 |
 | `POST /api/catalog/indexes` | 索引 |
+| `POST /api/catalog/suggest` | 查询提示。返回驱动、当前模式、模式列表，以及该模式下的表和字段。省略 `schema` 时用连接的默认模式。最多 300 张表、6000 个字段，超出时 `truncated` 为 true |
 
 单次查询最多 50 条语句。结果行数默认 100，不超过配置上限。`load_extension`、`xp_cmdshell` 和 `FROM PROGRAM` 会被拒绝。
 

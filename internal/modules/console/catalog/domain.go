@@ -31,6 +31,26 @@ type CatalogIndex struct {
 	Columns string `json:"columns"`
 }
 
+type CatalogSuggestColumn struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+type CatalogSuggestTable struct {
+	Schema  string                 `json:"schema"`
+	Name    string                 `json:"name"`
+	Type    string                 `json:"type"`
+	Columns []CatalogSuggestColumn `json:"columns"`
+}
+
+type CatalogSuggestResponse struct {
+	Driver    string                `json:"driver"`
+	Schema    string                `json:"schema"`
+	Schemas   []CatalogSchema       `json:"schemas"`
+	Tables    []CatalogSuggestTable `json:"tables"`
+	Truncated bool                  `json:"truncated"`
+}
+
 type CatalogResponse struct {
 	Driver  string          `json:"driver"`
 	Schemas []CatalogSchema `json:"schemas"`

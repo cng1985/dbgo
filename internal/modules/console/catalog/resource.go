@@ -68,6 +68,46 @@ func (r *Resource) Columns(ctx context.Context, search *CatalogSearch) (response
 	return response.OK(CatalogResponse{Driver: target.Driver, Schemas: []CatalogSchema{}, Tables: []CatalogTable{}, Columns: columns, Indexes: []CatalogIndex{}}), nil
 }
 
+func (r *Resource) Suggest(ctx context.Context, search *CatalogSearch) (response.Response[CatalogSuggestResponse], error) {
+	target, schema, err := r.openSchema(ctx, search)
+	if err != nil {
+		return response.Response[CatalogSuggestResponse]{}, err
+	}
+	defer target.Close()
+	schemaItems, err := shared.ListSchemas(ctx, target.DB, target.Driver)
+	if err != nil {
+		return response.Response[CatalogSuggestResponse]{}, apperrors.Business(10002, apperrors.KindInvalid, shared.PublicError("读取模式失败", "", err), err)
+	}
+	catalog, err := shared.ListSuggest(ctx, target.DB, target.Driver, schema)
+	if err != nil {
+		return response.Response[CatalogSuggestResponse]{}, apperrors.Business(10002, apperrors.KindInvalid, shared.PublicError("读取结构提示失败", "", err), err)
+	}
+	schemas := make([]CatalogSchema, 0, len(schemaItems))
+	for _, item := range schemaItems {
+		schemas = append(schemas, CatalogSchema{Name: item.Name})
+	}
+	tables := make([]CatalogSuggestTable, 0, len(catalog.Tables))
+	for _, table := range catalog.Tables {
+		columns := make([]CatalogSuggestColumn, 0, len(table.Columns))
+		for _, column := range table.Columns {
+			columns = append(columns, CatalogSuggestColumn{Name: column.Name, Type: column.Type})
+		}
+		tables = append(tables, CatalogSuggestTable{
+			Schema:  table.Schema,
+			Name:    table.Name,
+			Type:    table.Type,
+			Columns: columns,
+		})
+	}
+	return response.OK(CatalogSuggestResponse{
+		Driver:    target.Driver,
+		Schema:    schema,
+		Schemas:   schemas,
+		Tables:    tables,
+		Truncated: catalog.Truncated,
+	}), nil
+}
+
 func (r *Resource) Indexes(ctx context.Context, search *CatalogSearch) (response.Response[CatalogResponse], error) {
 	target, schema, table, err := r.openTable(ctx, search)
 	if err != nil {
