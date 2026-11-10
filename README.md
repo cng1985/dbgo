@@ -57,7 +57,7 @@ APP_PROFILE=pro APP_AUTH_ADMIN_PASSWORD='至少八位' go run ./cmd/server --dat
 
 - 查看连接、查询、失败查询、迁移和备份数量。
 - 新建并测试 SQLite、MySQL、PostgreSQL、SQL Server 连接。
-- 执行 SQL。默认只读，写入要取消只读。
+- 执行 SQL。编辑器会高亮语法，并按所选连接和模式提示关键字、表和字段。默认只读，写入要取消只读。
 - 查看模式、表、字段和索引。
 - 编写、执行和回滚迁移。失败的脚本保持失败状态。
 - 创建 SQL 备份并恢复。SQLite 还可以做 `VACUUM INTO` 文件副本，该副本只供下载。
@@ -97,6 +97,7 @@ journalctl -u dbgo
 ## 验证
 
 ```bash
+node --test web/src/sqlEditor.test.js
 GOTOOLCHAIN=local go test ./...
 ```
 

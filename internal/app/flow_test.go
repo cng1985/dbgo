@@ -161,6 +161,13 @@ func TestConsoleFlow(t *testing.T) {
 	if columns.Code != 200 || !containsName(columns.Data["columns"], "population") {
 		t.Fatalf("应看到字段 population: %#v", columns)
 	}
+	suggest := post(t, client, base+"/api/catalog/suggest", map[string]any{"connection_id": connectionID})
+	if suggest.Code != 200 || suggest.Data["driver"] != "sqlite" || suggest.Data["schema"] != "main" || !containsName(suggest.Data["schemas"], "main") || !suggestHasColumn(suggest.Data, "city", "population") {
+		t.Fatalf("结构提示应包含 city.population: %#v", suggest)
+	}
+	if suggest.Data["truncated"] != false {
+		t.Fatalf("小库不应截断结构提示: %#v", suggest.Data["truncated"])
+	}
 
 	badMigration := post(t, client, base+"/api/migration/create", map[string]any{
 		"connection_id": connectionID,
@@ -348,6 +355,24 @@ func waitReady(t *testing.T, base string) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatal("服务未就绪")
+}
+
+func suggestHasColumn(data map[string]any, table, column string) bool {
+	tables, _ := data["tables"].([]any)
+	for _, item := range tables {
+		row, _ := item.(map[string]any)
+		if row["name"] != table {
+			continue
+		}
+		columns, _ := row["columns"].([]any)
+		for _, col := range columns {
+			field, _ := col.(map[string]any)
+			if field["name"] == column {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func containsName(value any, name string) bool {

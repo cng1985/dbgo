@@ -93,6 +93,124 @@ a { color: inherit; }
   padding: 10px 12px;
 }
 .field textarea, .sql-box { min-height: 180px; resize: vertical; font-family: var(--mono); font-size: 13px; line-height: 1.55; }
+.field-inline { min-width: 120px; }
+.field-inline input { width: 96px; }
+.sql-editor {
+  position: relative;
+  height: 280px;
+  min-height: 180px;
+  resize: vertical;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: #fff;
+}
+.sql-editor:focus-within {
+  outline: 2px solid rgba(184, 106, 36, 0.35);
+  border-color: var(--amber);
+}
+.sql-surface { position: relative; height: 100%; }
+.sql-backdrop, .sql-input {
+  box-sizing: border-box;
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.55;
+  letter-spacing: 0;
+  font-variant-ligatures: none;
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+.sql-backdrop {
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  color: var(--ink);
+}
+.sql-input {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: var(--ink);
+  resize: none;
+  outline: none;
+}
+.sql-input::selection {
+  background: rgba(184, 106, 36, 0.28);
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+.sql-placeholder {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  color: #b5a594;
+  pointer-events: none;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.sql-keyword { color: #9a3412; background: #f6d7b0; border-radius: 2px; }
+.sql-string { color: #166534; }
+.sql-number { color: #b91c1c; }
+.sql-comment { color: #78716c; }
+.sql-table, .sql-quoted { color: #0f4c81; }
+.sql-column { color: #3f3a33; }
+.sql-ident { color: var(--ink); }
+.sql-operator { color: #9a3412; }
+.sql-punct { color: #6f6458; }
+.sql-suggest {
+  position: fixed;
+  z-index: 40;
+  width: min(360px, calc(100vw - 16px));
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.sql-suggest-section, .sql-suggest-foot {
+  padding: 6px 8px 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.sql-suggest-foot { padding-top: 8px; }
+.sql-suggest li[role="option"] {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  width: 100%;
+  border-radius: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.sql-suggest li.active { background: #f3e6d4; }
+.sql-kind {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 0 6px;
+  background: #f3e6d4;
+  color: var(--amber-deep);
+  font-size: 12px;
+}
+.sql-kind[data-kind="table"], .sql-kind[data-kind="schema"] { background: #e7eef2; color: #245c74; }
+.sql-kind[data-kind="column"] { background: #e5f2ea; color: var(--moss); }
+.sql-label { font-family: var(--mono); font-size: 13px; }
+.sql-detail { margin-left: auto; color: var(--muted); font-size: 12px; }
+.editor-note { margin: 0; font-size: 13px; }
 .field input:focus, .field select:focus, .field textarea:focus, .sql-box:focus {
   outline: 2px solid rgba(184, 106, 36, 0.35);
   border-color: var(--amber);
