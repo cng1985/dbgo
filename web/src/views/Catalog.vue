@@ -11,6 +11,10 @@ const table = ref('')
 const columns = ref([])
 const indexes = ref([])
 const error = ref('')
+const props = defineProps({
+  preferredConnection: { type: String, default: '' },
+  revision: { type: Number, default: 0 }
+})
 
 async function loadConnections() {
   const page = await api('/api/connection/search', { page: 1, page_size: 100, sort: 'name', direction: 'asc' })
@@ -81,8 +85,24 @@ watch(table, async () => {
   }
 })
 
+watch(() => props.preferredConnection, (id) => {
+  if (id) {
+    connectionID.value = id
+  }
+})
+
+watch(() => props.revision, (value, previous) => {
+  if (previous === undefined || value === previous) {
+    return
+  }
+  loadConnections()
+})
+
 onMounted(async () => {
   try {
+    if (props.preferredConnection) {
+      connectionID.value = props.preferredConnection
+    }
     await loadConnections()
   } catch (err) {
     error.value = err.message

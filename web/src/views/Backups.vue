@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { api, downloadBackup, formatBytes, formatTime, statusText } from '../api'
 
 const connections = ref([])
@@ -10,6 +10,11 @@ const rows = ref([])
 const error = ref('')
 const notice = ref('')
 const pending = ref(false)
+const props = defineProps({
+  preferredConnection: { type: String, default: '' },
+  revision: { type: Number, default: 0 }
+})
+let ready = false
 
 async function loadConnections() {
   const page = await api('/api/connection/search', { page: 1, page_size: 100, sort: 'name', direction: 'asc' })
@@ -80,12 +85,37 @@ async function remove(row) {
   }
 }
 
+watch(() => props.preferredConnection, (id) => {
+  if (ready && id && id !== connectionID.value) {
+    connectionID.value = id
+  }
+})
+
+watch(connectionID, (id, previous) => {
+  if (!ready || id === previous) {
+    return
+  }
+  load()
+})
+
+watch(() => props.revision, (value, previous) => {
+  if (!ready || previous === undefined || value === previous) {
+    return
+  }
+  loadConnections()
+})
+
 onMounted(async () => {
   try {
+    if (props.preferredConnection) {
+      connectionID.value = props.preferredConnection
+    }
     await loadConnections()
     await load()
   } catch (err) {
     error.value = err.message
+  } finally {
+    ready = true
   }
 })
 </script>

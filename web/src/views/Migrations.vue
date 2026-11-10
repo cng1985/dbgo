@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { api, formatTime, statusText } from '../api'
 
 const connections = ref([])
@@ -8,6 +8,11 @@ const rows = ref([])
 const error = ref('')
 const dialog = ref(null)
 const form = reactive(blank())
+const props = defineProps({
+  preferredConnection: { type: String, default: '' },
+  revision: { type: Number, default: 0 }
+})
+let ready = false
 
 function blank() {
   return { id: '', connection_id: '', version_no: 1, name: '', up_sql: '', down_sql: '' }
@@ -75,12 +80,37 @@ async function act(path, row, extra) {
   }
 }
 
+watch(() => props.preferredConnection, (id) => {
+  if (ready && id && id !== connectionID.value) {
+    connectionID.value = id
+  }
+})
+
+watch(connectionID, (id, previous) => {
+  if (!ready || id === previous) {
+    return
+  }
+  load()
+})
+
+watch(() => props.revision, (value, previous) => {
+  if (!ready || previous === undefined || value === previous) {
+    return
+  }
+  loadConnections()
+})
+
 onMounted(async () => {
   try {
+    if (props.preferredConnection) {
+      connectionID.value = props.preferredConnection
+    }
     await loadConnections()
     await load()
   } catch (err) {
     error.value = err.message
+  } finally {
+    ready = true
   }
 })
 </script>

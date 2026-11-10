@@ -26,36 +26,25 @@ async function submit() {
 
 <template>
   <section class="login">
-    <div class="login-brand">
-      <div>
+    <form class="login-card stack" @submit.prevent="submit">
+      <div class="login-head">
         <div class="mark">Db</div>
-        <h1>把库表放回一张工作台。</h1>
-        <p>查询、结构、迁移和备份共用同一套连接。口令只留在服务端，页面只保存会话。</p>
-        <div class="login-points">
-          <div><span>01</span> SQLite、MySQL、PostgreSQL、SQL Server</div>
-          <div><span>02</span> 默认只读，写入需要明确打开</div>
-          <div><span>03</span> 迁移和备份都能回到可核对的状态</div>
+        <div>
+          <h1>DBGo</h1>
+          <p class="muted">数据库工作台</p>
         </div>
       </div>
-      <small>DBGo</small>
-    </div>
-    <div class="login-panel">
-      <form class="login-card stack" @submit.prevent="submit">
-        <div>
-          <h2>登录</h2>
-          <p class="muted">使用管理员账号进入控制台。</p>
-        </div>
-        <p v-if="error" class="notice">{{ error }}</p>
-        <label class="field">
-          <span>用户名</span>
-          <input v-model="username" autocomplete="username" required />
-        </label>
-        <label class="field">
-          <span>密码</span>
-          <input v-model="password" type="password" autocomplete="current-password" required />
-        </label>
-        <button class="btn btn-primary btn-block" type="submit" :disabled="pending">进入控制台</button>
-      </form>
-    </div>
+      <p v-if="error" class="notice">{{ error }}</p>
+      <label class="field">
+        <span>用户名</span>
+        <input v-model="username" autocomplete="username" required />
+      </label>
+      <label class="field">
+        <span>密码</span>
+        <input v-model="password" type="password" autocomplete="current-password" required />
+      </label>
+      <button class="btn btn-primary btn-block" type="submit" :disabled="pending">登录</button>
+      <p class="muted login-foot">SQLite、MySQL、PostgreSQL、SQL Server。查询默认只读。</p>
+    </form>
   </section>
 </template>

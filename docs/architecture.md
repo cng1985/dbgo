@@ -42,4 +42,4 @@ configs
 
 ## 前端
 
-`web/` 是 Vue 3、JavaScript、Vite 和 Pinia。构建结果放进 `web/dist`，由 `web/embed.go` 嵌进二进制。页面不内联脚本和样式，以匹配 `default-src 'self'`。查询编辑器的高亮和补全也写在页面样式里，不在运行时注入 `<style>`。接口封装区分普通响应和分页响应，主键保持字符串。
+`web/` 是 Vue 3、JavaScript、Vite 和 Pinia。登录后是数据库工作台：菜单和工具栏、左侧对象树、多标签 SQL 编辑器、底部状态栏。构建结果放进 `web/dist`，由 `web/embed.go` 嵌进二进制。页面不内联脚本和样式，以匹配 `default-src 'self'`。查询编辑器的高亮和补全也写在页面样式里，不在运行时注入 `<style>`。接口封装区分普通响应和分页响应，主键保持字符串。
