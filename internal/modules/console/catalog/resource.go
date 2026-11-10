@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/cng1985/dbgo/internal/modules/console/shared"
+	"github.com/cng1985/dbgo/internal/platform/config"
 	"github.com/cng1985/dbgo/internal/platform/domain"
 	apperrors "github.com/cng1985/dbgo/internal/platform/errors"
 	"github.com/cng1985/dbgo/internal/platform/response"
@@ -11,10 +12,11 @@ import (
 
 type Resource struct {
 	opener shared.Opener
+	cfg    *config.Config
 }
 
-func NewResource(opener shared.Opener) *Resource {
-	return &Resource{opener: opener}
+func NewResource(opener shared.Opener, cfg *config.Config) *Resource {
+	return &Resource{opener: opener, cfg: cfg}
 }
 
 func (r *Resource) Schemas(ctx context.Context, search *CatalogSearch) (response.Response[CatalogResponse], error) {

@@ -7,7 +7,7 @@ import TreeNode from './TreeNode.vue'
 const props = defineProps({
   connections: { type: Array, default: () => [] }
 })
-const emit = defineEmits(['select', 'context', 'open-data', 'reload', 'collapse', 'create-connection'])
+const emit = defineEmits(['select', 'context', 'open-data', 'open-design', 'reload', 'collapse', 'create-connection'])
 
 const filter = ref('')
 const filterInput = ref(null)
@@ -67,6 +67,19 @@ function tableNode(connection, schema, table) {
   }
 }
 
+function routineNode(connection, schema, item) {
+  return {
+    id: `r-${connection.id}-${schema}-${item.kind}-${item.name}`,
+    kind: item.kind,
+    label: item.name,
+    meta: item.detail || '',
+    connection,
+    schema,
+    object: item.name,
+    leaf: true
+  }
+}
+
 function schemaNode(connection, name) {
   return {
     id: `s-${connection.id}-${name}`,
@@ -84,10 +97,30 @@ function schemaNode(connection, name) {
       })).data.tables || []
       const base = tables.filter((item) => !/view/i.test(item.type || ''))
       const views = tables.filter((item) => /view/i.test(item.type || ''))
-      return [
+      let routines = []
+      let routineSupported = false
+      try {
+        const body = (await api('/api/catalog/objects', {
+          connection_id: connection.id,
+          schema: name,
+          kind: 'routine'
+        })).data
+        routines = body.objects || []
+        routineSupported = body.supported !== false
+      } catch {
+        routines = []
+      }
+      const children = [
         folder(`tables-${connection.id}-${name}`, '表', base.map((item) => tableNode(connection, name, item))),
         folder(`views-${connection.id}-${name}`, '视图', views.map((item) => tableNode(connection, name, item)))
       ]
+      if (routineSupported) {
+        children.push(
+          folder(`procs-${connection.id}-${name}`, '存储过程', routines.filter((item) => item.kind === 'procedure').map((item) => routineNode(connection, name, item))),
+          folder(`funcs-${connection.id}-${name}`, '函数', routines.filter((item) => item.kind === 'function').map((item) => routineNode(connection, name, item)))
+        )
+      }
+      return children
     }
   }
 }
@@ -176,6 +209,10 @@ function select(node) {
 function openNode(node) {
   if (node.kind === 'table' || node.kind === 'view') {
     emit('open-data', node)
+    return
+  }
+  if (node.kind === 'procedure' || node.kind === 'function') {
+    emit('open-design', node)
     return
   }
   toggle(node)

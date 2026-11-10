@@ -240,7 +240,29 @@ td.wrap, .wrap { white-space: normal; }
 .menu-pop button:disabled { color: #9a9a9a; }
 .menu-pop hr, .ctx hr { border: 0; border-top: 1px solid #ececec; margin: 4px 0; }
 .menu-hint { color: var(--muted); }
-.ctx { position: fixed; z-index: 70; }
+.ctx {
+  position: fixed;
+  z-index: 70;
+  min-width: 180px;
+  margin: 0;
+  padding: 4px 0;
+  background: #fff;
+  border: 1px solid #c8c8c8;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
+}
+.sql-preview {
+  margin: 0;
+  padding: 10px;
+  background: #f7f7f4;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  white-space: pre-wrap;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.ai-box { padding: 12px; }
+.account-grid { grid-template-columns: 1fr 1fr; }
+.file-input { display: none; }
 .ctx button.danger { color: var(--clay); }
 
 .toolbar-main {
@@ -575,7 +597,7 @@ td.null { color: #9a9a9a; font-style: italic; }
 .status-right { margin-left: auto; display: flex; gap: 14px; }
 
 @media (max-width: 860px) {
-  .login, .split, .split-wide, .form-grid { grid-template-columns: 1fr; }
+  .login, .split, .split-wide, .form-grid, .account-grid { grid-template-columns: 1fr; }
   .span-2 { grid-column: auto; }
   .wb-body { flex-direction: column; }
   .wb-nav { width: 100% !important; height: 240px; }

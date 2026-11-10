@@ -19,3 +19,32 @@ func trimUsername(username string) (string, error) {
 	}
 	return username, nil
 }
+
+func normalizeEmail(email string) (string, error) {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return "", nil
+	}
+	if len([]rune(email)) > 120 || strings.ContainsAny(email, " \t\r\n") || strings.Count(email, "@") != 1 {
+		return "", apperrors.Invalid("邮箱格式不正确")
+	}
+	local, host, _ := strings.Cut(email, "@")
+	if local == "" || host == "" || strings.Contains(host, "@") {
+		return "", apperrors.Invalid("邮箱格式不正确")
+	}
+	return email, nil
+}
+
+func normalizeDisplayName(name, fallback string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = fallback
+	}
+	if len([]rune(name)) > 80 {
+		return "", apperrors.Invalid("显示名超出长度限制")
+	}
+	if name == "" {
+		return "", apperrors.Invalid("显示名不能为空")
+	}
+	return name, nil
+}

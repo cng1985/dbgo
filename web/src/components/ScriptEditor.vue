@@ -1,6 +1,7 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api, driverLabel, formatTime, statusText } from '../api'
+import { commentSQL, copyText, explainSQL, filterSQL, formatSQL, insertSQL } from '../sqlActions.js'
 import SqlEditor from './SqlEditor.vue'
 
 const props = defineProps({
@@ -21,6 +22,10 @@ const error = ref('')
 const pending = ref(false)
 const panel = ref('result')
 const resultsHeight = ref(240)
+const editorRef = ref(null)
+const menu = ref(null)
+const advice = ref(null)
+const optimizing = ref(false)
 let hintSeq = 0
 
 const driver = computed(() => props.connections.find((item) => item.id === props.tab.connectionId)?.driver || '')
@@ -105,16 +110,17 @@ function pickConnection(id) {
   props.tab.connectionId = id
 }
 
-async function run() {
+async function run(sqlText) {
   error.value = ''
   result.value = null
   panel.value = 'result'
   pending.value = true
   props.tab.autorun = 0
+  const sql = typeof sqlText === 'string' ? sqlText : props.tab.sql
   try {
     result.value = (await api('/api/query/execute', {
       connection_id: props.tab.connectionId,
-      sql: props.tab.sql,
+      sql,
       read_only: props.tab.readOnly,
       max_rows: Number(props.tab.maxRows || 100)
     })).data
@@ -141,6 +147,117 @@ async function openHistory(item) {
   } catch (err) {
     error.value = err.message
   }
+}
+
+function chosenText(payload) {
+  if (payload?.text && payload.text.trim()) {
+    return payload.text
+  }
+  return props.tab.sql
+}
+
+function replaceChosen(payload, value) {
+  if (payload?.text && payload.text.trim() && editorRef.value) {
+    editorRef.value.replaceRange(payload.start, payload.end, value)
+    return
+  }
+  props.tab.sql = value
+}
+
+function format(payload) {
+  menu.value = null
+  replaceChosen(payload, formatSQL(chosenText(payload)))
+}
+
+function explain(payload) {
+  menu.value = null
+  if (driver.value === 'sqlserver') {
+    error.value = 'SQL Server 没有 EXPLAIN。可以用 AI 优化查看改写建议。'
+    return
+  }
+  props.tab.sql = explainSQL(driver.value, chosenText(payload))
+  props.tab.readOnly = true
+  run()
+}
+
+async function optimize(payload) {
+  menu.value = null
+  error.value = ''
+  optimizing.value = true
+  panel.value = 'ai'
+  try {
+    advice.value = (await api('/api/llm/optimize', {
+      connection_id: props.tab.connectionId,
+      schema: props.tab.schema,
+      sql: chosenText(payload)
+    })).data
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    optimizing.value = false
+  }
+}
+
+function applyAdvice() {
+  if (advice.value?.sql) {
+    props.tab.sql = advice.value.sql
+    props.tab.readOnly = false
+  }
+}
+
+function comment(payload) {
+  menu.value = null
+  replaceChosen(payload, commentSQL(chosenText(payload)))
+}
+
+function openEditorMenu(payload) {
+  const selected = payload.text && payload.text.trim()
+  menu.value = {
+    x: payload.x,
+    y: payload.y,
+    items: [
+      { label: selected ? '执行选中' : '执行', run: () => run(selected ? payload.text : undefined) },
+      { label: '格式化', run: () => format(payload) },
+      { label: '解释', run: () => explain(payload) },
+      { label: 'AI 优化', disabled: !props.tab.connectionId, run: () => optimize(payload) },
+      { label: '注释 / 取消注释', run: () => comment(payload) },
+      { label: '复制', run: () => copyText(chosenText(payload)) }
+    ]
+  }
+}
+
+function openCellMenu(event, statement, row, cellIndex) {
+  event.preventDefault()
+  const column = statement.columns[cellIndex]
+  const value = row[cellIndex]
+  menu.value = {
+    x: event.clientX,
+    y: event.clientY,
+    items: [
+      { label: '复制单元格', run: () => copyText(value === null ? 'NULL' : String(value)) },
+      { label: '复制行', run: () => copyText(row.map((cell) => (cell === null ? 'NULL' : cell)).join('\t')) },
+      { label: '复制行为 JSON', run: () => copyText(JSON.stringify(Object.fromEntries(statement.columns.map((item, index) => [item.name, row[index]])), null, 2)) },
+      { label: '复制为 INSERT', run: () => copyText(insertSQL(statement.columns, row)) },
+      { label: '复制列名', run: () => copyText(column?.name || '') },
+      { label: '用此值筛选', run: () => { props.tab.sql = filterSQL(driver.value, props.tab.sql, column?.name || 'col', value); props.tab.readOnly = true } }
+    ]
+  }
+}
+
+function runMenu(item) {
+  const action = item.run
+  menu.value = null
+  action()
+}
+
+function closeMenu(event) {
+  if (!menu.value) {
+    return
+  }
+  if (event?.target?.closest?.('.ctx')) {
+    return
+  }
+  menu.value = null
 }
 
 function startDrag(event) {
@@ -175,12 +292,15 @@ watch(() => props.tab.schema, (value) => {
 onMounted(() => {
   loadHints(props.tab.schema || '')
   loadHistory()
+  window.addEventListener('pointerdown', closeMenu)
   if (props.tab.autorun) {
     run()
   }
 })
 
-defineExpose({ run })
+onBeforeUnmount(() => window.removeEventListener('pointerdown', closeMenu))
+
+defineExpose({ run, format, explain, optimize })
 </script>
 
 <template>
@@ -200,11 +320,14 @@ defineExpose({ run })
       <label class="check"><input v-model="tab.readOnly" type="checkbox" /> 只读</label>
       <label class="check">最大行数 <input v-model.number="tab.maxRows" class="rows" type="number" min="1" max="1000" /></label>
       <button class="btn" type="button" :disabled="!tab.connectionId || hintPending" @click="loadHints(tab.schema)">刷新结构</button>
+      <button class="btn" type="button" @click="format()">格式化</button>
+      <button class="btn" type="button" :disabled="!tab.sql.trim()" @click="explain()">解释</button>
+      <button class="btn" type="button" :disabled="!tab.connectionId || optimizing" @click="optimize()">AI 优化</button>
       <span class="script-hint">{{ driver ? driverLabel(driver) + ' · ' : '' }}{{ hintText }}</span>
     </div>
     <p v-if="hintError" class="notice script-alert">结构提示不可用：{{ hintError }}。关键字提示仍然可用。</p>
     <div class="script-editor">
-      <SqlEditor v-model="tab.sql" fill :driver="driver" :schema="tab.schema" :schemas="schemaNames" :tables="hintTables" @run="run" />
+      <SqlEditor ref="editorRef" v-model="tab.sql" fill :driver="driver" :schema="tab.schema" :schemas="schemaNames" :tables="hintTables" @run="run" @menu="openEditorMenu" />
     </div>
     <template v-if="showResults">
       <div class="splitter-h" @mousedown="startDrag"></div>
@@ -212,11 +335,22 @@ defineExpose({ run })
         <div class="result-tabs">
           <button type="button" :class="{ on: panel === 'result' }" @click="panel = 'result'">结果</button>
           <button type="button" :class="{ on: panel === 'history' }" @click="panel = 'history'">历史</button>
+          <button type="button" :class="{ on: panel === 'ai' }" @click="panel = 'ai'">优化</button>
           <span class="result-summary">{{ summary }}</span>
           <button class="icon-btn" type="button" title="隐藏结果" @click="emit('close-results')">×</button>
         </div>
         <div class="result-body">
-          <template v-if="panel === 'history'">
+          <template v-if="panel === 'ai'">
+            <div v-if="optimizing" class="empty">正在请模型阅读语句和表结构。</div>
+            <div v-else-if="!advice" class="empty">在编辑器里右键，或点 AI 优化。需要先在大模型里配置 OpenAI 协议服务。</div>
+            <div v-else class="stack ai-box">
+              <p>{{ advice.summary || '模型没有给出摘要' }}</p>
+              <p v-for="(note, index) in advice.notes || []" :key="index" class="muted">{{ note }}</p>
+              <pre v-if="advice.sql" class="sql-preview">{{ advice.sql }}</pre>
+              <button v-if="advice.sql" class="btn btn-primary" type="button" @click="applyAdvice">替换到编辑器</button>
+            </div>
+          </template>
+          <template v-else-if="panel === 'history'">
             <div v-if="!history.length" class="empty">还没有查询。</div>
             <button v-for="item in history" :key="item.id" class="history" type="button" @click="openHistory(item)">
               <span class="tag" :class="item.status === 'failed' ? 'bad' : 'good'">{{ statusText[item.status] || item.status }}</span>
@@ -244,7 +378,7 @@ defineExpose({ run })
                   <tbody>
                     <tr v-for="(row, rowIndex) in statement.rows" :key="rowIndex">
                       <td class="rownum">{{ rowIndex + 1 }}</td>
-                      <td v-for="(cell, cellIndex) in row" :key="cellIndex" :class="{ null: cell === null }">{{ cell === null ? 'NULL' : cell }}</td>
+                      <td v-for="(cell, cellIndex) in row" :key="cellIndex" :class="{ null: cell === null }" @contextmenu="openCellMenu($event, statement, row, cellIndex)">{{ cell === null ? 'NULL' : cell }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -254,5 +388,8 @@ defineExpose({ run })
         </div>
       </section>
     </template>
+    <div v-if="menu" class="ctx" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" role="menu">
+      <button v-for="(item, index) in menu.items" :key="index" type="button" :disabled="item.disabled" @click="runMenu(item)">{{ item.label }}</button>
+    </div>
   </section>
 </template>

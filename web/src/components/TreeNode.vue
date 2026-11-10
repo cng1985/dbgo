@@ -45,6 +45,7 @@ const icon = computed(() => {
   if (kind === 'schema') return 'schema'
   if (kind === 'table') return 'table'
   if (kind === 'view') return 'view'
+  if (kind === 'procedure' || kind === 'function') return 'sql'
   if (kind === 'key') return 'key'
   if (kind === 'column') return 'column'
   if (kind === 'index') return 'index'

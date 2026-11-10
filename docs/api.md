@@ -22,6 +22,8 @@
 | 10002 | SQL 与目录 |
 | 10003 | 迁移 |
 | 10004 | 备份 |
+| 10005 | 大模型 |
+| 10006 | 性能监控 |
 
 主键字段是字符串。时间是 RFC3339。
 
@@ -30,8 +32,11 @@
 | 路径 | 说明 |
 | --- | --- |
 | `POST /api/auth/login` | 公开。成功后写 Cookie，响应不包含会话令牌 |
+| `POST /api/auth/register` | 公开。`username`、`password`、`display_name`、`email`。成功后写 Cookie，角色为 `member`。未开放注册时返回 403，用户名重复返回 409 |
+| `POST /api/auth/options` | 公开。返回 `allow_register` |
 | `POST /api/auth/logout` | 撤销当前会话并清除 Cookie |
-| `POST /api/auth/profile` | 当前用户 |
+| `POST /api/auth/profile` | 当前用户，含邮箱和创建时间 |
+| `POST /api/auth/profile/update` | `display_name`、`email` |
 | `POST /api/auth/password` | `current_password`、`new_password`。成功后所有会话失效 |
 
 ## 总览与连接
@@ -45,6 +50,8 @@
 | `POST /api/connection/search` | 分页。`keyword`、`driver`、`sort`、`direction` |
 | `POST /api/connection/delete` | 不存在返回 404。重复删除仍是 404 |
 | `POST /api/connection/test` | 长请求。返回版本和耗时 |
+| `POST /api/connection/export` | `ids` 为空时导出全部，最多 500 个。`include_password` 为 true 时附带明文口令 |
+| `POST /api/connection/import` | `document` 为 `dbgo-connections` 版本 1。`on_conflict` 为 `skip`、`rename` 或 `error`，默认改名。一次最多 200 个 |
 
 SQLite 的 `sqlite_path` 可以是相对数据目录的路径。网络库需要主机、库名和用户名，端口 0 使用默认端口。PostgreSQL 的 `ssl_mode` 可以是 `disable`、`require`、`verify-ca`、`verify-full`。
 
@@ -60,6 +67,10 @@ SQLite 的 `sqlite_path` 可以是相对数据目录的路径。网络库需要�
 | `POST /api/catalog/columns` | 字段 |
 | `POST /api/catalog/indexes` | 索引 |
 | `POST /api/catalog/suggest` | 查询提示。返回驱动、当前模式、模式列表，以及该模式下的表和字段。省略 `schema` 时用连接的默认模式。最多 300 张表、6000 个字段，超出时 `truncated` 为 true |
+| `POST /api/catalog/objects` | `kind` 为 `table`、`view`、`procedure`、`function`、`routine` 或空。SQLite 的例程 `supported` 为 false |
+| `POST /api/catalog/definition` | 读取表、视图、存储过程或函数的 SQL |
+| `POST /api/catalog/preview` | 按列、查询或例程主体生成 DDL，不连接目标库 |
+| `POST /api/catalog/apply` | 长请求。在选定连接上执行最多 30 条对象语句 |
 
 单次查询最多 50 条语句。结果行数默认 100，不超过配置上限。`load_extension`、`xp_cmdshell` 和 `FROM PROGRAM` 会被拒绝。
 
@@ -90,6 +101,21 @@ SQLite 的 `sqlite_path` 可以是相对数据目录的路径。网络库需要�
 | `GET /api/backup/download?id=` | 下载文件。仍需要登录 Cookie 和 `X-DBGo-Request` |
 
 SQL 备份最多 200 张表，并受 `backup.max_rows` 与 `backup.max_bytes` 限制。文件放在数据目录的 `backups/` 下，路径不能逃出该目录。
+
+## 大模型与性能
+
+| 路径 | 说明 |
+| --- | --- |
+| `POST /api/llm/create` | `name`、`base_url`、`api_key`、`model`、`temperature`、`max_tokens`、`is_default`。地址只接受 http 或 https |
+| `POST /api/llm/update` | 全量更新。`api_key` 为空表示保持原密钥 |
+| `POST /api/llm/one` | 单条。响应只有 `api_key_set`，不返回密钥 |
+| `POST /api/llm/search` | 分页 |
+| `POST /api/llm/delete` | 删除配置 |
+| `POST /api/llm/test` | 长请求。先请求 `/models`，失败再发一条短对话 |
+| `POST /api/llm/optimize` | 长请求。`connection_id`、`sql`，可选 `profile_id` 和 `schema`。返回 `summary`、`sql`、`notes` |
+| `POST /api/monitor/snapshot` | 长请求。返回指标、会话和对象大小。读不到的部分写入 `notes` |
+
+模型服务走 OpenAI Chat Completions。密钥用 AES-GCM 保存。地址不能带账号，也不能指向云元数据地址。
 
 ## 健康
 
