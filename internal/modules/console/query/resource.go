@@ -123,6 +123,7 @@ func (r *Resource) Execute(ctx context.Context, request *QueryExecuteRequest) (r
 			Rows:         rows,
 			RowsAffected: item.RowsAffected,
 			Truncated:    item.Truncated,
+			Messages:     item.Messages,
 		})
 	}
 	return response.OK(QueryResponse{

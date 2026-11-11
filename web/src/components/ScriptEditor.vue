@@ -49,6 +49,7 @@ const hintText = computed(() => {
   }
   return body
 })
+const outputLines = computed(() => (result.value?.statements || []).flatMap((item) => item.messages || []))
 const summary = computed(() => {
   if (pending.value) {
     return '正在执行'
@@ -56,7 +57,11 @@ const summary = computed(() => {
   if (!result.value) {
     return ''
   }
-  return `耗时 ${result.value.duration_ms} ms，影响或返回 ${result.value.row_count} 行`
+  const text = `耗时 ${result.value.duration_ms} ms，影响或返回 ${result.value.row_count} 行`
+  if (!outputLines.value.length) {
+    return text
+  }
+  return `${text}，${outputLines.value.length} 条输出`
 })
 
 async function loadHistory() {
@@ -126,6 +131,10 @@ async function run(sqlText) {
       read_only: props.tab.readOnly,
       max_rows: Number(props.tab.maxRows || 100)
     })).data
+    const statements = result.value?.statements || []
+    const hasMessages = statements.some((item) => (item.messages || []).length)
+    const hasGrid = statements.some((item) => item.columns?.length)
+    panel.value = hasMessages && !hasGrid ? 'output' : 'result'
     emit('ran', `${props.tab.title} 完成，${result.value.duration_ms} ms，${result.value.row_count} 行`)
     await loadHistory()
     loadHints(props.tab.schema)
@@ -385,6 +394,7 @@ defineExpose({ run, format, explain, optimize })
       <section class="script-results" :style="{ height: resultsHeight + 'px' }">
         <div class="result-tabs">
           <button type="button" :class="{ on: panel === 'result' }" @click="panel = 'result'">结果</button>
+          <button type="button" :class="{ on: panel === 'output' }" @click="panel = 'output'">输出<span v-if="outputLines.length" class="count">{{ outputLines.length }}</span></button>
           <button type="button" :class="{ on: panel === 'history' }" @click="panel = 'history'">历史</button>
           <button type="button" :class="{ on: panel === 'ai' }" @click="panel = 'ai'">优化</button>
           <span class="result-summary">{{ summary }}</span>
@@ -400,6 +410,12 @@ defineExpose({ run, format, explain, optimize })
               <pre v-if="advice.sql" class="sql-preview">{{ advice.sql }}</pre>
               <button v-if="advice.sql" class="btn btn-primary" type="button" @click="applyAdvice">替换到编辑器</button>
             </div>
+          </template>
+          <template v-else-if="panel === 'output'">
+            <p v-if="error" class="notice">{{ error }}</p>
+            <div v-else-if="!result" class="empty">执行后在这里显示 PRINT 等消息。</div>
+            <pre v-else-if="outputLines.length" class="output-console">{{ outputLines.join('\n') }}</pre>
+            <div v-else class="empty">没有输出。</div>
           </template>
           <template v-else-if="panel === 'history'">
             <div v-if="!history.length" class="empty">还没有查询。</div>

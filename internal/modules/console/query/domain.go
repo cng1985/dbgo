@@ -34,6 +34,7 @@ type QueryStatement struct {
 	Rows         [][]*string   `json:"rows"`
 	RowsAffected int64         `json:"rows_affected,string"`
 	Truncated    bool          `json:"truncated"`
+	Messages     []string      `json:"messages,omitempty"`
 }
 
 type QuerySimple struct {

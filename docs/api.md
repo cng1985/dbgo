@@ -72,7 +72,7 @@ SQLite 的 `sqlite_path` 可以是相对数据目录的路径。网络库需要�
 | `POST /api/catalog/preview` | 按列、查询或例程主体生成 DDL，不连接目标库。列可以带 `comment`。页面建表时按驱动选择列类型，已有类型不在预设里时仍保留。`mode` 为 `alter` 时按 `baseline` 和当前列生成更新表结构的语句，不执行；`changed` 为 true 才表示有语句。列的 `origin` 是修改前的字段名，空字符串表示新增。省略全部 `origin` 时按字段名对应 |
 | `POST /api/catalog/apply` | 长请求。在选定连接上执行最多 300 条对象语句。SQLite 在同一条连接的事务里执行，执行期间关闭外键强制，提交前若出现新的外键错误则整段回滚 |
 
-单次查询最多 50 条语句。结果行数默认 100，不超过配置上限。`load_extension`、`xp_cmdshell` 和 `FROM PROGRAM` 会被拒绝。
+单次查询最多 50 条语句。结果行数默认 100，不超过配置上限。`load_extension`、`xp_cmdshell` 和 `FROM PROGRAM` 会被拒绝。只读模式允许查询语句，也允许 SQL Server 的 `PRINT`。成功时每条语句的 `messages` 是 `PRINT` 和信息类消息，查询页的输出控制台显示这些文本。
 
 ## 迁移
 

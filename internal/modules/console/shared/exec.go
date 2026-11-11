@@ -22,6 +22,7 @@ type Result struct {
 	Rows         [][]*string
 	RowsAffected int64
 	Truncated    bool
+	Messages     []string
 }
 
 type ExecOptions struct {
@@ -66,11 +67,11 @@ func Execute(ctx context.Context, db *sql.DB, driver, script string, options Exe
 	}
 	results := make([]Result, 0, len(statements))
 	for _, statement := range statements {
-		result, err := runStatement(ctx, db, driver, statement, options.MaxRows)
+		batch, err := runStatement(ctx, db, driver, statement, options.MaxRows)
 		if err != nil {
 			return results, err
 		}
-		results = append(results, result)
+		results = append(results, batch...)
 	}
 	return results, nil
 }
@@ -93,11 +94,11 @@ func executeTransactional(ctx context.Context, db *sql.DB, driver string, statem
 	}
 	results := make([]Result, 0, len(statements))
 	for _, statement := range statements {
-		result, err := runStatement(ctx, tx, driver, statement, options.MaxRows)
+		batch, err := runStatement(ctx, tx, driver, statement, options.MaxRows)
 		if err != nil {
 			return results, err
 		}
-		results = append(results, result)
+		results = append(results, batch...)
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -134,11 +135,11 @@ func executeSQLiteSchema(ctx context.Context, db *sql.DB, statements []string, o
 	}()
 	results := make([]Result, 0, len(statements))
 	for _, statement := range statements {
-		result, err := runStatement(ctx, tx, "sqlite", statement, options.MaxRows)
+		batch, err := runStatement(ctx, tx, "sqlite", statement, options.MaxRows)
 		if err != nil {
 			return results, err
 		}
-		results = append(results, result)
+		results = append(results, batch...)
 	}
 	after, err := foreignKeyCounts(ctx, tx)
 	if err != nil {
@@ -195,18 +196,26 @@ type queryer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
-func runStatement(ctx context.Context, db queryer, driver, statement string, maxRows int) (Result, error) {
+func runStatement(ctx context.Context, db queryer, driver, statement string, maxRows int) ([]Result, error) {
 	command := FirstToken(statement)
 	query := RewritePlaceholders(driver, statement)
+	// SQL Server 的 PRINT 和信息类消息走 TDS INFO。普通 Exec/Query 会丢掉这些标记，必须用消息队列把整句读完。
+	if NormalizeDriver(driver) == "sqlserver" {
+		return querySQLServer(ctx, db, query, command, maxRows)
+	}
 	if ReturnsRows(statement) {
-		return queryRows(ctx, db, query, command, maxRows)
+		result, err := queryRows(ctx, db, query, command, maxRows)
+		if err != nil {
+			return nil, err
+		}
+		return []Result{result}, nil
 	}
 	result, err := db.ExecContext(ctx, query)
 	if err != nil {
-		return Result{Command: command}, err
+		return nil, err
 	}
 	affected, _ := result.RowsAffected()
-	return Result{Command: command, Columns: []Column{}, Rows: [][]*string{}, RowsAffected: affected}, nil
+	return []Result{{Command: command, Columns: []Column{}, Rows: [][]*string{}, RowsAffected: affected}}, nil
 }
 
 func queryRows(ctx context.Context, db queryer, query, command string, maxRows int) (Result, error) {

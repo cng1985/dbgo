@@ -83,7 +83,7 @@ func ReturnsRows(statement string) bool {
 
 func ReadOnlyToken(token string) bool {
 	switch token {
-	case "select", "with", "show", "explain", "pragma", "values", "describe", "desc", "table":
+	case "select", "with", "show", "explain", "pragma", "values", "describe", "desc", "table", "print":
 		return true
 	default:
 		return false
