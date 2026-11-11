@@ -195,22 +195,27 @@ async function loadDefinition() {
 }
 
 async function refreshColumns() {
-  const result = (await api('/api/catalog/definition', {
-    connection_id: connectionID.value,
-    schema: schema.value,
-    name: name.value,
-    kind: 'table'
-  })).data
-  const loaded = columnsFromDefinition(result)
-  if (!loaded.length) {
-    error.value = '没有读到字段'
-    return
+  baselineColumns.value = null
+  try {
+    const result = (await api('/api/catalog/definition', {
+      connection_id: connectionID.value,
+      schema: schema.value,
+      name: name.value,
+      kind: 'table'
+    })).data
+    const loaded = columnsFromDefinition(result)
+    if (!loaded.length) {
+      error.value = '没有读到字段。表已经更新，请重新读取定义后再继续改结构。'
+      return
+    }
+    columns.value = loaded
+    baselineColumns.value = snapshotColumns(loaded)
+    baselineName.value = name.value
+    baselineSchema.value = schema.value
+    baselineConnection.value = connectionID.value
+  } catch (err) {
+    error.value = `${err.message} 表已经更新，请重新读取定义后再继续改结构。`
   }
-  columns.value = loaded
-  baselineColumns.value = snapshotColumns(loaded)
-  baselineName.value = name.value
-  baselineSchema.value = schema.value
-  baselineConnection.value = connectionID.value
 }
 
 async function updateStructure() {
@@ -269,11 +274,7 @@ async function confirmAlter() {
       previousSchema: baselineSchema.value,
       previousName: baselineName.value
     }
-    try {
-      await refreshColumns()
-    } catch (err) {
-      error.value = err.message
-    }
+    await refreshColumns()
     note.value = summary
     emit('applied', applied)
   } catch (err) {
