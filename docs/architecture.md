@@ -8,7 +8,7 @@ internal/app
 internal/platform
   config database domain response errors middleware routing server logging auth secret sqlscript buildinfo
 internal/modules/console
-  connection query catalog migration backup overview llm monitor snippet shared
+  connection query catalog migration backup etl overview llm monitor snippet shared
 web
 migrations
 configs
@@ -24,7 +24,7 @@ configs
 
 ## 两个数据库
 
-应用库保存用户、会话、连接、查询历史、迁移定义、备份记录和代码段。目标库是用户登记的 MySQL、PostgreSQL、SQL Server 或 SQLite。目标库用 `database/sql` 打开，每次操作新建最多 2 个连接的小池，用完关闭，不缓存。
+应用库保存用户、会话、连接、查询历史、迁移定义、备份记录、ETL 任务和代码段。目标库是用户登记的 MySQL、PostgreSQL、SQL Server 或 SQLite。目标库用 `database/sql` 打开，每次操作新建最多 2 个连接的小池，用完关闭，不缓存。
 
 应用库使用 GORM，并设置 `SkipDefaultTransaction: true`。单条写入不再套一层默认事务；跨步骤的更新、删除和迁移清理显式调用 `Transaction`。SQLite 应用库的最大连接数是 1。
 

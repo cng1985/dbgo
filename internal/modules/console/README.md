@@ -9,6 +9,7 @@ DBGo 控制台按业务能力拆成子模块。父目录只做组合，子模块
 | catalog | 查看模式、表、字段和索引，生成并执行表、视图、存储过程和函数的 DDL | 不落本地库 |
 | migration | 管理目标库的版本化升级与回滚脚本 | `data_migration` |
 | backup | 生成、下载、恢复逻辑备份；SQLite 另支持一致的二进制副本 | `data_backup` 与 `data/backups` |
+| etl | 把一条只读查询的结果按字段对应写入另一张表，并保留执行记录 | `etl_task`、`etl_run` |
 | overview | 汇总数量和最近查询 | 不拥有表，只调用其他模块的查询 |
 | llm | 保存 OpenAI 协议模型，并用当前库结构给出 SQL 改写建议 | `llm_profile` |
 | monitor | 读取目标库的大小、会话和表规模 | 不落本地库 |
@@ -16,7 +17,7 @@ DBGo 控制台按业务能力拆成子模块。父目录只做组合，子模块
 
 允许的依赖：
 
-- query、catalog、migration、backup、llm、monitor 通过 `shared.Opener` 打开目标库，由 connection 提供实现。
+- query、catalog、migration、backup、etl、llm、monitor 通过 `shared.Opener` 打开目标库，由 connection 提供实现。
 - connection 负责连接 JSON 的导入和导出。导出默认不含口令。
 - snippet 只读写当前用户自己的代码段。
 - 连接按创建人隔离。migration、backup 通过 `Describe` 读取当前用户自己的连接名称，不写连接表。

@@ -20,6 +20,7 @@ const router = createRouter({
         { path: 'catalog', component: outlet, meta: { title: '结构', tool: 'catalog' } },
         { path: 'migrations', component: outlet, meta: { title: '迁移', tool: 'migrations' } },
         { path: 'backups', component: outlet, meta: { title: '备份', tool: 'backups' } },
+        { path: 'etl', component: outlet, meta: { title: 'ETL', tool: 'etl' } },
         { path: 'designer', component: outlet, meta: { title: '对象设计', tool: 'designer' } },
         { path: 'monitor', component: outlet, meta: { title: '性能', tool: 'monitor' } },
         { path: 'models', component: outlet, meta: { title: '大模型', tool: 'models' } },

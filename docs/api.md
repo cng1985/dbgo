@@ -24,6 +24,7 @@
 | 10004 | 备份 |
 | 10005 | 大模型 |
 | 10006 | 性能监控 |
+| 10007 | ETL |
 
 主键字段是字符串。时间是 RFC3339。
 
@@ -88,6 +89,22 @@ SQLite 的 `sqlite_path` 可以是相对数据目录的路径。网络库需要�
 | `POST /api/migration/resolve` | `action` 为 `abort` 或 `confirm`，处理中断后的 `applying` / `reverting` |
 
 状态：`draft`、`applying`、`applied`、`failed`、`reverting`。
+
+## ETL
+
+| 路径 | 说明 |
+| --- | --- |
+| `POST /api/etl/create` | `name`、`source_connection_id`、`source_sql`、`target_connection_id`、`target_table`，可选 `target_schema`、`write_mode`、`mappings`。每个账号最多 200 个，名称在自己的任务里唯一 |
+| `POST /api/etl/update` | 全量更新，必须带 `id` 和 `version`。正在执行时不能改 |
+| `POST /api/etl/one` | 单条，含抽取语句和字段对应 |
+| `POST /api/etl/search` | 分页。带最近一次执行的状态和行数 |
+| `POST /api/etl/delete` | 删除任务和执行记录。目标表里的数据保留。正在执行时不能删 |
+| `POST /api/etl/preview` | 长请求。执行抽取语句并返回最多 20 行，不写入 |
+| `POST /api/etl/run` | 长请求。抽取后写入目标表。成功返回本次 `rows_read` 和 `rows_written` |
+| `POST /api/etl/abort` | 中止当前执行。进程重启后留下的 `running` 会标成失败 |
+| `POST /api/etl/runs` | `task_id`。分页返回执行记录 |
+
+`write_mode` 为 `append`（追加）或 `replace`（先删除目标表全部行再写入）。`mappings` 是 `{source, target}` 列表；省略时按抽取结果的字段名写入。字段名先按原样对应，只有一个不区分大小写的列时才放宽；多个只差大小写的列不会猜成同一列。抽取语句只能是一条 `SELECT` 或 `VALUES`，不能带 `INTO`。字段转换写在这条语句里。值按原类型写入，二进制不会先转成文本；预览才把单元格显示成文本。一次最多抽取 100000 行，超出则不写入。目标表的写入在一个事务里，失败会回滚。来源和目标可以是不同连接。
 
 ## 备份
 

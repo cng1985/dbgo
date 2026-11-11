@@ -475,6 +475,9 @@ td.wrap, .wrap { white-space: normal; }
 .edit-field { display: grid; grid-template-columns: minmax(120px, 180px) 1fr auto; gap: 8px; align-items: center; }
 .edit-field input[type='text'], .edit-field input:not([type]) { width: 100%; }
 .edit-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-list { display: grid; gap: 6px; margin-bottom: 8px; }
+.map-row { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 8px; align-items: center; }
+.map-arrow { color: var(--muted); }
 .statement { display: grid; gap: 6px; padding: 8px; }
 .result-grid { max-height: none; border-left: 0; border-right: 0; border-radius: 0; }
 .result-grid th { position: sticky; top: 0; z-index: 1; }

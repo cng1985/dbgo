@@ -111,5 +111,7 @@ export const statusText = {
   applied: '已执行',
   reverting: '回滚中',
   running: '进行中',
-  ready: '就绪'
+  ready: '就绪',
+  succeeded: '成功',
+  aborting: '正在中止'
 }
