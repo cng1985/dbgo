@@ -23,6 +23,7 @@ type Result struct {
 	RowsAffected int64
 	Truncated    bool
 	Messages     []string
+	SQL          string
 }
 
 type ExecOptions struct {
@@ -201,21 +202,32 @@ func runStatement(ctx context.Context, db queryer, driver, statement string, max
 	query := RewritePlaceholders(driver, statement)
 	// SQL Server 的 PRINT 和信息类消息走 TDS INFO。普通 Exec/Query 会丢掉这些标记，必须用消息队列把整句读完。
 	if NormalizeDriver(driver) == "sqlserver" {
-		return querySQLServer(ctx, db, query, command, maxRows)
+		results, err := querySQLServer(ctx, db, query, command, maxRows)
+		if err != nil {
+			return nil, err
+		}
+		return withSQL(results, statement), nil
 	}
 	if ReturnsRows(statement) {
 		result, err := queryRows(ctx, db, query, command, maxRows)
 		if err != nil {
 			return nil, err
 		}
-		return []Result{result}, nil
+		return withSQL([]Result{result}, statement), nil
 	}
 	result, err := db.ExecContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	affected, _ := result.RowsAffected()
-	return []Result{{Command: command, Columns: []Column{}, Rows: [][]*string{}, RowsAffected: affected}}, nil
+	return withSQL([]Result{{Command: command, Columns: []Column{}, Rows: [][]*string{}, RowsAffected: affected}}, statement), nil
+}
+
+func withSQL(results []Result, statement string) []Result {
+	for i := range results {
+		results[i].SQL = statement
+	}
+	return results
 }
 
 func queryRows(ctx context.Context, db queryer, query, command string, maxRows int) (Result, error) {

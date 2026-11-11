@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api, connectionTarget, driverLabel } from '../api'
 import { useSession } from '../stores/session'
 import { selectStar } from '../sqlText.js'
+import { applyTabClose } from '../tabClose.js'
 import Icon from '../components/Icon.vue'
 import Navigator from '../components/Navigator.vue'
 import ScriptEditor from '../components/ScriptEditor.vue'
@@ -61,6 +62,8 @@ const openMenu = ref('')
 const tabMenu = ref(false)
 const context = ref(null)
 const contextEl = ref(null)
+const tabContext = ref(null)
+const tabContextEl = ref(null)
 const menuBar = ref(null)
 const navigatorRef = ref(null)
 const passwordDialog = ref(null)
@@ -436,23 +439,71 @@ function activate(tab) {
 }
 
 function closeTab(tab) {
-  const index = tabs.value.findIndex((item) => item.id === tab.id)
-  if (index < 0) {
-    return
+  closeTabs(tab?.id, 'one')
+}
+
+function closeTabs(targetId, mode) {
+  tabContext.value = null
+  const before = activeId.value
+  const next = applyTabClose(tabs.value, before, targetId, mode)
+  const keep = new Set(next.tabs.map((tab) => tab.id))
+  for (const tab of tabs.value) {
+    if (!keep.has(tab.id)) {
+      editorMap.delete(tab.id)
+    }
   }
-  const wasActive = activeId.value === tab.id
-  tabs.value.splice(index, 1)
-  editorMap.delete(tab.id)
-  if (!wasActive) {
-    return
-  }
-  const next = tabs.value[index] || tabs.value[index - 1]
-  if (!next) {
+  tabs.value = next.tabs
+  if (!next.activeId) {
     activeId.value = ''
     go('/')
     return
   }
-  activate(next)
+  if (next.activeId !== before) {
+    const tab = next.tabs.find((item) => item.id === next.activeId)
+    if (tab) {
+      activate(tab)
+    }
+  }
+}
+
+function openTabMenu(event, tab) {
+  event.preventDefault()
+  context.value = null
+  openMenu.value = ''
+  tabMenu.value = false
+  const index = tabs.value.findIndex((item) => item.id === tab.id)
+  tabContext.value = {
+    x: event.clientX,
+    y: event.clientY,
+    items: [
+      { label: '关闭', run: () => closeTabs(tab.id, 'one') },
+      { label: '关闭其他窗口', disabled: tabs.value.length < 2, run: () => closeTabs(tab.id, 'others') },
+      { label: '关闭全部', run: () => closeTabs(tab.id, 'all') },
+      { label: '关闭左边', disabled: index <= 0, run: () => closeTabs(tab.id, 'left') },
+      { label: '关闭右边', disabled: index < 0 || index >= tabs.value.length - 1, run: () => closeTabs(tab.id, 'right') }
+    ]
+  }
+  nextTick(() => {
+    const el = tabContextEl.value
+    if (!el || !tabContext.value) {
+      return
+    }
+    const rect = el.getBoundingClientRect()
+    tabContext.value = {
+      ...tabContext.value,
+      x: rect.right > window.innerWidth ? Math.max(8, window.innerWidth - rect.width - 8) : tabContext.value.x,
+      y: rect.bottom > window.innerHeight ? Math.max(8, window.innerHeight - rect.height - 8) : tabContext.value.y
+    }
+  })
+}
+
+function runTabContext(item) {
+  if (item.disabled) {
+    return
+  }
+  const action = item.run
+  tabContext.value = null
+  action()
 }
 
 function bindEditor(id, el) {
@@ -706,6 +757,7 @@ function focusFilter() {
 function clickMenu(id) {
   openMenu.value = openMenu.value === id ? '' : id
   context.value = null
+  tabContext.value = null
   tabMenu.value = false
 }
 
@@ -772,12 +824,16 @@ function onPointer(event) {
   if (context.value && contextEl.value && !contextEl.value.contains(event.target)) {
     context.value = null
   }
+  if (tabContext.value && tabContextEl.value && !tabContextEl.value.contains(event.target)) {
+    tabContext.value = null
+  }
 }
 
 function onKeydown(event) {
   if (event.key === 'Escape') {
     openMenu.value = ''
     context.value = null
+    tabContext.value = null
     tabMenu.value = false
   }
 }
@@ -919,6 +975,7 @@ onBeforeUnmount(() => {
             :aria-selected="tab.id === activeId"
             :title="tab.title"
             @click="activate(tab)"
+            @contextmenu="openTabMenu($event, tab)"
           >
             <Icon :name="tabIcon(tab)" />
             <span>{{ tab.title }}</span>
@@ -984,6 +1041,10 @@ onBeforeUnmount(() => {
         <span>zh_CN</span>
       </span>
     </footer>
+
+    <div v-if="tabContext" ref="tabContextEl" class="ctx" :style="{ left: tabContext.x + 'px', top: tabContext.y + 'px' }" role="menu">
+      <button v-for="(item, index) in tabContext.items" :key="index" type="button" :disabled="item.disabled" @click="runTabContext(item)">{{ item.label }}</button>
+    </div>
 
     <div v-if="context" ref="contextEl" class="ctx" :style="{ left: context.x + 'px', top: context.y + 'px' }" role="menu">
       <template v-for="(item, index) in contextItems" :key="index">

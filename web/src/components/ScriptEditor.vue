@@ -1,7 +1,8 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api, driverLabel, formatTime, statusText } from '../api'
 import { commentSQL, copyText, explainSQL, filterSQL, formatSQL, insertSQL } from '../sqlActions.js'
+import { buildEditFields, fieldChanged, querySource, rowKeys, updateRowSQL } from '../rowEdit.js'
 import SqlEditor from './SqlEditor.vue'
 
 const props = defineProps({
@@ -24,10 +25,20 @@ const panel = ref('result')
 const resultsHeight = ref(240)
 const editorRef = ref(null)
 const menu = ref(null)
+const menuEl = ref(null)
 const advice = ref(null)
 const optimizing = ref(false)
 const snippets = ref([])
 const snippetID = ref('')
+const editDialog = ref(null)
+const editFields = ref([])
+const editError = ref('')
+const editWarn = ref('')
+const editPending = ref(false)
+const editTitle = ref('')
+const editExact = ref(true)
+const editContext = ref(null)
+const editDirty = computed(() => editFields.value.some((field) => fieldChanged(field)))
 let hintSeq = 0
 
 const driver = computed(() => props.connections.find((item) => item.id === props.tab.connectionId)?.driver || '')
@@ -266,7 +277,7 @@ function comment(payload) {
 
 function openEditorMenu(payload) {
   const selected = payload.text && payload.text.trim()
-  menu.value = {
+  showMenu({
     x: payload.x,
     y: payload.y,
     items: [
@@ -277,24 +288,139 @@ function openEditorMenu(payload) {
       { label: '注释 / 取消注释', run: () => comment(payload) },
       { label: '复制', run: () => copyText(chosenText(payload)) }
     ]
+  })
+}
+
+function showMenu(next) {
+  menu.value = next
+  nextTick(() => {
+    const el = menuEl.value
+    if (!el || !menu.value) {
+      return
+    }
+    const rect = el.getBoundingClientRect()
+    const x = rect.right > window.innerWidth ? Math.max(8, window.innerWidth - rect.width - 8) : menu.value.x
+    const y = rect.bottom > window.innerHeight ? Math.max(8, window.innerHeight - rect.height - 8) : menu.value.y
+    if (x !== menu.value.x || y !== menu.value.y) {
+      menu.value = { ...menu.value, x, y }
+    }
+  })
+}
+
+function openRowMenu(event, statement, row) {
+  event.preventDefault()
+  const cellIndex = cellFromEvent(event)
+  const column = cellIndex >= 0 ? statement.columns?.[cellIndex] : null
+  const value = cellIndex >= 0 ? row[cellIndex] : null
+  const items = []
+  if (column) {
+    items.push(
+      { label: '复制单元格', run: () => copyText(value === null ? 'NULL' : String(value)) },
+      { label: '复制列名', run: () => copyText(column.name || '') },
+      { label: '用此值筛选', run: () => { props.tab.sql = filterSQL(driver.value, props.tab.sql, column.name || 'col', value); props.tab.readOnly = true } }
+    )
+  }
+  items.push(
+    { label: '复制行', run: () => copyText(row.map((cell) => (cell === null ? 'NULL' : cell)).join('\t')) },
+    { label: '复制行为 JSON', run: () => copyText(JSON.stringify(Object.fromEntries((statement.columns || []).map((item, index) => [item.name, row[index]])), null, 2)) },
+    { label: '复制为 INSERT', run: () => copyText(insertSQL(statement.columns, row)) },
+    { label: '编辑行数据', run: () => editRow(statement, row) }
+  )
+  showMenu({ x: event.clientX, y: event.clientY, items })
+}
+
+function cellFromEvent(event) {
+  const node = event.target?.nodeType === 1 ? event.target : event.target?.parentElement
+  const cell = node?.closest?.('td')
+  if (!cell?.parentElement) {
+    return -1
+  }
+  return [...cell.parentElement.children].indexOf(cell) - 1
+}
+
+async function editRow(statement, row) {
+  editError.value = ''
+  editWarn.value = ''
+  const sourceSQL = statement.sql || ((result.value?.statements || []).length === 1 ? result.value?.sql : '')
+  const source = querySource(sourceSQL)
+  if (!source) {
+    error.value = '只能编辑单表查询的结果。请改成 select … from 表。'
+    return
+  }
+  if (!props.tab.connectionId) {
+    error.value = '请先选择连接。'
+    return
+  }
+  const schema = source.schema || props.tab.schema || ''
+  try {
+    const body = { connection_id: props.tab.connectionId, schema, table: source.table }
+    const columns = (await api('/api/catalog/columns', body)).data.columns || []
+    const indexes = (await api('/api/catalog/indexes', body)).data.indexes || []
+    if (!columns.length) {
+      error.value = '没有读到这张表的字段，不能编辑行。'
+      return
+    }
+    const keys = rowKeys(columns, indexes, statement.columns || [])
+    if (!keys.names.length) {
+      error.value = '结果里没有这张表的字段，不能编辑行。'
+      return
+    }
+    editExact.value = keys.exact
+    editWarn.value = keys.exact ? '' : '没有可用的主键或唯一索引，保存时会用当前行的全部字段去匹配，可能更新到多行。'
+    editTitle.value = schema ? `${schema}.${source.table}` : source.table
+    editFields.value = buildEditFields(columns, statement.columns || [], row, keys.names)
+    editContext.value = { driver: driver.value, schema, table: source.table, statement, row }
+    await nextTick()
+    editDialog.value?.showModal()
+  } catch (err) {
+    error.value = err.message
   }
 }
 
-function openCellMenu(event, statement, row, cellIndex) {
-  event.preventDefault()
-  const column = statement.columns[cellIndex]
-  const value = row[cellIndex]
-  menu.value = {
-    x: event.clientX,
-    y: event.clientY,
-    items: [
-      { label: '复制单元格', run: () => copyText(value === null ? 'NULL' : String(value)) },
-      { label: '复制行', run: () => copyText(row.map((cell) => (cell === null ? 'NULL' : cell)).join('\t')) },
-      { label: '复制行为 JSON', run: () => copyText(JSON.stringify(Object.fromEntries(statement.columns.map((item, index) => [item.name, row[index]])), null, 2)) },
-      { label: '复制为 INSERT', run: () => copyText(insertSQL(statement.columns, row)) },
-      { label: '复制列名', run: () => copyText(column?.name || '') },
-      { label: '用此值筛选', run: () => { props.tab.sql = filterSQL(driver.value, props.tab.sql, column?.name || 'col', value); props.tab.readOnly = true } }
-    ]
+async function saveRow() {
+  const current = editContext.value
+  if (!current || editPending.value || !editDirty.value) {
+    return
+  }
+  const sql = updateRowSQL(current.driver, current.schema, current.table, editFields.value)
+  if (!sql) {
+    editError.value = '没有要保存的修改。'
+    return
+  }
+  if (!editExact.value && !window.confirm('没有主键或唯一索引，可能一次更新多行。确定保存？')) {
+    return
+  }
+  editPending.value = true
+  editError.value = ''
+  try {
+    const data = (await api('/api/query/execute', {
+      connection_id: props.tab.connectionId,
+      sql,
+      read_only: false,
+      max_rows: 1
+    })).data
+    const affected = Number(data.row_count ?? 0)
+    if (!affected) {
+      editError.value = '没有更新到行。数据可能已经变化，请重新查询。'
+      return
+    }
+    const columns = current.statement.columns || []
+    for (const field of editFields.value) {
+      if (!fieldChanged(field)) {
+        continue
+      }
+      const index = columns.findIndex((column) => String(column.name || '').toLowerCase() === field.name.toLowerCase())
+      if (index >= 0) {
+        current.row[index] = field.isNull ? null : field.value
+      }
+    }
+    editDialog.value?.close()
+    emit('ran', affected > 1 ? `已更新 ${affected} 行，结果里先改了当前这一行` : '已更新 1 行')
+    loadHistory().catch(() => {})
+  } catch (err) {
+    editError.value = err.message
+  } finally {
+    editPending.value = false
   }
 }
 
@@ -443,9 +569,9 @@ defineExpose({ run, format, explain, optimize })
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="(row, rowIndex) in statement.rows" :key="rowIndex">
+                    <tr v-for="(row, rowIndex) in statement.rows" :key="rowIndex" @contextmenu="openRowMenu($event, statement, row)">
                       <td class="rownum">{{ rowIndex + 1 }}</td>
-                      <td v-for="(cell, cellIndex) in row" :key="cellIndex" :class="{ null: cell === null }" @contextmenu="openCellMenu($event, statement, row, cellIndex)">{{ cell === null ? 'NULL' : cell }}</td>
+                      <td v-for="(cell, cellIndex) in row" :key="cellIndex" :class="{ null: cell === null }">{{ cell === null ? 'NULL' : cell }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -455,8 +581,27 @@ defineExpose({ run, format, explain, optimize })
         </div>
       </section>
     </template>
-    <div v-if="menu" class="ctx" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" role="menu">
+    <div v-if="menu" ref="menuEl" class="ctx" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" role="menu">
       <button v-for="(item, index) in menu.items" :key="index" type="button" :disabled="item.disabled" @click="runMenu(item)">{{ item.label }}</button>
     </div>
+    <dialog ref="editDialog" class="modal wide">
+      <form @submit.prevent="saveRow">
+        <h2>编辑行数据</h2>
+        <p class="muted">{{ editTitle }}</p>
+        <p v-if="editWarn" class="notice">{{ editWarn }}</p>
+        <p v-if="editError" class="notice">{{ editError }}</p>
+        <div class="edit-fields">
+          <div v-for="field in editFields" :key="field.name" class="edit-field">
+            <span class="edit-name">{{ field.name }} <small class="muted">{{ field.type }}{{ field.key ? ' · 定位' : '' }}{{ field.locked ? ' · 只读' : '' }}</small></span>
+            <input v-model="field.value" :disabled="field.isNull || field.locked" :aria-label="field.name" />
+            <label class="check"><input v-model="field.isNull" type="checkbox" :disabled="field.locked" /> NULL</label>
+          </div>
+        </div>
+        <div class="row">
+          <button class="btn" type="button" @click="editDialog?.close()">取消</button>
+          <button class="btn btn-primary" type="submit" :disabled="editPending || !editDirty">保存</button>
+        </div>
+      </form>
+    </dialog>
   </section>
 </template>
