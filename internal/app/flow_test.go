@@ -287,20 +287,22 @@ func TestConsoleFlow(t *testing.T) {
 		t.Fatalf("性能快照失败: %#v", snapshot)
 	}
 
-	exported := post(t, client, base+"/api/connection/export", map[string]any{
-		"ids":              []string{connectionID},
-		"include_password": false,
+	blockedExport := post(t, client, base+"/api/connection/export", map[string]any{
+		"ids": []string{connectionID},
 	})
-	exportedItems, _ := exported.Data["connections"].([]any)
-	if exported.Code != 200 || exported.Data["format"] != "dbgo-connections" || len(exportedItems) != 1 {
-		t.Fatalf("导出连接失败: %#v", exported)
-	}
-	exportedItem, _ := exportedItems[0].(map[string]any)
-	if exportedItem["password"] != nil && exportedItem["password"] != "" {
-		t.Fatalf("默认导出不应包含口令: %#v", exportedItem)
+	if blockedExport.Code != 404 {
+		t.Fatalf("连接不能导出: %#v", blockedExport)
 	}
 	imported := post(t, client, base+"/api/connection/import", map[string]any{
-		"document":    exported.Data,
+		"document": map[string]any{
+			"format":  "dbgo-connections",
+			"version": 1,
+			"connections": []map[string]any{{
+				"name":        "本地示例",
+				"driver":      "sqlite",
+				"sqlite_path": "imported.db",
+			}},
+		},
 		"on_conflict": "rename",
 	})
 	if imported.Code != 200 || imported.Data["created"] != float64(1) {

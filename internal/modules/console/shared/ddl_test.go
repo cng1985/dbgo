@@ -33,6 +33,34 @@ func TestRenderTableIdentityByDriver(t *testing.T) {
 	}
 }
 
+func TestRenderTableKeepsDriverType(t *testing.T) {
+	cases := []struct {
+		driver string
+		typ    string
+	}{
+		{driver: "sqlite", typ: "text"},
+		{driver: "mysql", typ: "varchar(255)"},
+		{driver: "postgres", typ: "double precision"},
+		{driver: "sqlserver", typ: "nvarchar(255)"},
+	}
+	for _, tc := range cases {
+		sqlText, err := RenderObject(ObjectDraft{
+			Driver: tc.driver,
+			Kind:   "table",
+			Name:   "city",
+			Columns: []ColumnDraft{{
+				Name: "name", Type: tc.typ, Nullable: false,
+			}},
+		})
+		if err != nil {
+			t.Fatalf("%s 建表失败: %v", tc.driver, err)
+		}
+		if !strings.Contains(sqlText, tc.typ) {
+			t.Fatalf("%s 建表语句应保留所选类型 %s: %s", tc.driver, tc.typ, sqlText)
+		}
+	}
+}
+
 func TestSQLiteRejectsRoutines(t *testing.T) {
 	_, err := RenderObject(ObjectDraft{Driver: "sqlite", Kind: "procedure", Name: "save_city", Body: "select 1"})
 	if err == nil {
