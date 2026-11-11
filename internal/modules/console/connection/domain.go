@@ -21,11 +21,6 @@ type ConnectionDeleteRequest struct {
 	ID int64 `json:"id,string"`
 }
 
-type ConnectionExportRequest struct {
-	IDs             []string `json:"ids"`
-	IncludePassword bool     `json:"include_password"`
-}
-
 type ConnectionPortable struct {
 	Name         string `json:"name"`
 	Driver       string `json:"driver"`

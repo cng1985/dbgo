@@ -105,7 +105,6 @@ const menus = computed(() => [
     items: [
       { label: '新建 SQL 脚本', run: () => newScript() },
       { label: '新建连接', run: createConnection },
-      { label: '导出连接', run: () => openTool('connections', { command: { type: 'export', seq: Date.now() } }) },
       { label: '导入连接', run: () => openTool('connections', { command: { type: 'import', seq: Date.now() } }) },
       { type: 'sep' },
       { label: '关闭当前标签', disabled: !activeTab.value, run: () => activeTab.value && closeTab(activeTab.value) },
@@ -223,7 +222,6 @@ const contextItems = computed(() => {
     items.push(
       { label: '测试连接', run: () => testConnection(node.connection) },
       { label: '性能监控', run: () => openTool('monitor', { connectionId: node.connection.id }) },
-      { label: '导出此连接', run: () => openTool('connections', { command: { type: 'export', id: node.connection.id, seq: Date.now() } }) },
       { label: '迁移', run: () => openTool('migrations', { connectionId: node.connection.id }) },
       { label: '备份', run: () => openTool('backups', { connectionId: node.connection.id }) },
       { type: 'sep' },

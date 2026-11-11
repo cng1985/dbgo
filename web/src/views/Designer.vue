@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { api } from '../api'
+import { api, driverLabel } from '../api'
+import { columnTypeFor, columnTypes, defaultColumnType } from '../columnTypes.js'
 
 const props = defineProps({
   command: { type: Object, default: null },
@@ -22,20 +23,27 @@ const sql = ref('')
 const note = ref('')
 const error = ref('')
 const pending = ref(false)
-const columns = ref([blankColumn(true)])
-const params = ref([])
-
 const driver = computed(() => props.connections.find((item) => item.id === connectionID.value)?.driver || 'sqlite')
+const typeOptions = computed(() => columnTypes(driver.value))
 const isRoutine = computed(() => kind.value === 'procedure' || kind.value === 'function')
 const sqliteRoutine = computed(() => driver.value === 'sqlite' && isRoutine.value)
 
 function blankColumn(primary = false) {
-  return { name: primary ? 'id' : '', type: 'integer', nullable: !primary, primary, identity: primary, default: '' }
+  return { name: primary ? 'id' : '', type: defaultColumnType(driver.value), nullable: !primary, primary, identity: primary, default: '' }
 }
 
 function blankParam() {
   return { name: 'p_id', type: 'integer', mode: 'in' }
 }
+
+const columns = ref([blankColumn(true)])
+const params = ref([])
+
+watch(driver, (value) => {
+  for (const column of columns.value) {
+    column.type = columnTypeFor(value, column.type)
+  }
+})
 
 watch(() => props.connections, (list) => {
   if (!connectionID.value && list?.length) {
@@ -182,7 +190,10 @@ async function apply() {
 
     <div v-if="kind === 'table'" class="card">
       <div class="toolbar">
-        <h2>列</h2>
+        <div class="row">
+          <h2>列</h2>
+          <span class="muted">{{ driverLabel(driver) }}</span>
+        </div>
         <button class="btn" type="button" @click="columns.push(blankColumn(false))">添加列</button>
       </div>
       <div class="table-wrap">
@@ -191,7 +202,11 @@ async function apply() {
           <tbody>
             <tr v-for="(column, index) in columns" :key="index">
               <td><input v-model="column.name" aria-label="列名" /></td>
-              <td><input v-model="column.type" aria-label="类型" /></td>
+              <td>
+                <select v-model="column.type" aria-label="类型">
+                  <option v-for="item in typeOptions" :key="item" :value="item">{{ item }}</option>
+                </select>
+              </td>
               <td><input v-model="column.nullable" type="checkbox" aria-label="可空" /></td>
               <td><input v-model="column.primary" type="checkbox" aria-label="主键" /></td>
               <td><input v-model="column.identity" type="checkbox" aria-label="自增" /></td>
