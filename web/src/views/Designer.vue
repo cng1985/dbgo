@@ -31,6 +31,20 @@ function blankColumn(primary = false) {
   return { origin: '', name: primary ? 'id' : '', type: defaultColumnType(driver.value), nullable: !primary, primary, identity: primary, default: '', comment: '' }
 }
 
+function columnsFromDefinition(result) {
+  const loaded = Array.isArray(result?.columns) ? result.columns : []
+  return loaded.map((item) => ({
+    origin: item.name || '',
+    name: item.name || '',
+    type: matchColumnType(driver.value, item.type),
+    nullable: !!item.nullable,
+    primary: !!item.primary,
+    identity: !!item.identity,
+    default: item.default || '',
+    comment: item.comment || ''
+  }))
+}
+
 function snapshotColumns(list) {
   return list.map((item) => ({
     origin: item.origin || '',
@@ -158,17 +172,8 @@ async function loadDefinition() {
     replace.value = kind.value !== 'table'
     const hints = [result.note || '']
     if (kind.value === 'table') {
-      const loaded = Array.isArray(result.columns) ? result.columns : []
-      columns.value = loaded.map((item) => ({
-        origin: item.name || '',
-        name: item.name || '',
-        type: matchColumnType(driver.value, item.type),
-        nullable: !!item.nullable,
-        primary: !!item.primary,
-        identity: !!item.identity,
-        default: item.default || '',
-        comment: item.comment || ''
-      }))
+      const loaded = columnsFromDefinition(result)
+      columns.value = loaded
       if (!loaded.length) {
         error.value = '没有读到字段'
       } else {
@@ -187,6 +192,25 @@ async function loadDefinition() {
   } finally {
     pending.value = false
   }
+}
+
+async function refreshColumns() {
+  const result = (await api('/api/catalog/definition', {
+    connection_id: connectionID.value,
+    schema: schema.value,
+    name: name.value,
+    kind: 'table'
+  })).data
+  const loaded = columnsFromDefinition(result)
+  if (!loaded.length) {
+    error.value = '没有读到字段'
+    return
+  }
+  columns.value = loaded
+  baselineColumns.value = snapshotColumns(loaded)
+  baselineName.value = name.value
+  baselineSchema.value = schema.value
+  baselineConnection.value = connectionID.value
 }
 
 async function updateStructure() {
@@ -238,9 +262,20 @@ async function confirmAlter() {
     })).data
     alterDialog.value?.close()
     const summary = `已更新表结构，执行 ${result.statements} 条语句，耗时 ${result.duration_ms} ms`
-    await loadDefinition()
+    const applied = {
+      connectionId: connectionID.value,
+      schema: schema.value,
+      name: name.value,
+      previousSchema: baselineSchema.value,
+      previousName: baselineName.value
+    }
+    try {
+      await refreshColumns()
+    } catch (err) {
+      error.value = err.message
+    }
     note.value = summary
-    emit('applied')
+    emit('applied', applied)
   } catch (err) {
     error.value = err.message
   } finally {

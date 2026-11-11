@@ -6,7 +6,8 @@ const props = defineProps({
   connectionId: { type: String, default: '' },
   schema: { type: String, default: '' },
   table: { type: String, default: '' },
-  driver: { type: String, default: '' }
+  driver: { type: String, default: '' },
+  stamp: { type: Number, default: 0 }
 })
 const emit = defineEmits(['query'])
 
@@ -14,12 +15,16 @@ const columns = ref([])
 const indexes = ref([])
 const error = ref('')
 
-async function load() {
-  columns.value = []
-  indexes.value = []
+async function load(keep) {
   error.value = ''
   if (!props.connectionId || !props.table) {
+    columns.value = []
+    indexes.value = []
     return
+  }
+  if (!keep) {
+    columns.value = []
+    indexes.value = []
   }
   try {
     const body = { connection_id: props.connectionId, schema: props.schema, table: props.table }
@@ -30,8 +35,9 @@ async function load() {
   }
 }
 
-watch(() => [props.connectionId, props.schema, props.table], load)
-onMounted(load)
+watch(() => [props.connectionId, props.schema, props.table], () => load(false))
+watch(() => props.stamp, () => load(true))
+onMounted(() => load(false))
 </script>
 
 <template>
