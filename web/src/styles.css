@@ -240,7 +240,7 @@ td.wrap, .wrap { white-space: normal; }
   padding: 5px 14px;
 }
 .menu-pop button:hover:not(:disabled), .ctx button:hover { background: var(--accent-soft); }
-.menu-pop button:disabled { color: #9a9a9a; }
+.menu-pop button:disabled, .ctx button:disabled { color: #9a9a9a; }
 .menu-pop hr, .ctx hr { border: 0; border-top: 1px solid #ececec; margin: 4px 0; }
 .menu-hint { color: var(--muted); }
 .ctx {
@@ -471,6 +471,10 @@ td.wrap, .wrap { white-space: normal; }
   white-space: pre-wrap;
   word-break: break-word;
 }
+.edit-fields { display: grid; gap: 8px; max-height: 360px; overflow: auto; }
+.edit-field { display: grid; grid-template-columns: minmax(120px, 180px) 1fr auto; gap: 8px; align-items: center; }
+.edit-field input[type='text'], .edit-field input:not([type]) { width: 100%; }
+.edit-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .statement { display: grid; gap: 6px; padding: 8px; }
 .result-grid { max-height: none; border-left: 0; border-right: 0; border-radius: 0; }
 .result-grid th { position: sticky; top: 0; z-index: 1; }

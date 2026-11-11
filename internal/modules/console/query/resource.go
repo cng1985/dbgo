@@ -124,6 +124,7 @@ func (r *Resource) Execute(ctx context.Context, request *QueryExecuteRequest) (r
 			RowsAffected: item.RowsAffected,
 			Truncated:    item.Truncated,
 			Messages:     item.Messages,
+			SQL:          item.SQL,
 		})
 	}
 	return response.OK(QueryResponse{
