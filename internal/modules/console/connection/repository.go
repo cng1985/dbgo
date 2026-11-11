@@ -37,11 +37,11 @@ func (r *Repository) Create(ctx context.Context, entity *Connection) (response.R
 	return response.OK(*ConnectionEntityToResponse(entity)), nil
 }
 
-func (r *Repository) Update(ctx context.Context, request *ConnectionRequest, fields map[string]any) (response.Response[ConnectionResponse], error) {
+func (r *Repository) Update(ctx context.Context, ownerID int64, request *ConnectionRequest, fields map[string]any) (response.Response[ConnectionResponse], error) {
 	var result response.Response[ConnectionResponse]
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var entity Connection
-		if err := tx.Where("id = ?", request.ID).Take(&entity).Error; err != nil {
+		if err := tx.Where("id = ? and created_by = ?", request.ID, ownerID).Take(&entity).Error; err != nil {
 			if database.IsNotFound(err) {
 				return apperrors.NotFound("连接不存在")
 			}
@@ -52,7 +52,7 @@ func (r *Repository) Update(ctx context.Context, request *ConnectionRequest, fie
 		}
 		fields["version"] = entity.Version + 1
 		fields["updated_at"] = time.Now().UTC()
-		updated := tx.Model(&Connection{}).Where("id = ? and version = ?", request.ID, request.Version).Updates(fields)
+		updated := tx.Model(&Connection{}).Where("id = ? and created_by = ? and version = ?", request.ID, ownerID, request.Version).Updates(fields)
 		if updated.Error != nil {
 			if database.IsUnique(updated.Error) {
 				return apperrors.Conflict("连接名称已存在")
@@ -62,7 +62,7 @@ func (r *Repository) Update(ctx context.Context, request *ConnectionRequest, fie
 		if updated.RowsAffected != 1 {
 			return apperrors.Conflict("连接已被其他人修改")
 		}
-		if err := tx.Where("id = ?", request.ID).Take(&entity).Error; err != nil {
+		if err := tx.Where("id = ? and created_by = ?", request.ID, ownerID).Take(&entity).Error; err != nil {
 			return err
 		}
 		result = response.OK(*ConnectionEntityToResponse(&entity))
@@ -74,20 +74,20 @@ func (r *Repository) Update(ctx context.Context, request *ConnectionRequest, fie
 	return result, nil
 }
 
-func (r *Repository) One(ctx context.Context, request *ConnectionRequest) (response.Response[ConnectionResponse], error) {
+func (r *Repository) One(ctx context.Context, ownerID int64, request *ConnectionRequest) (response.Response[ConnectionResponse], error) {
 	var result response.Response[ConnectionResponse]
-	entity, err := r.find(ctx, request.ID)
+	entity, err := r.find(ctx, ownerID, request.ID)
 	if err != nil {
 		return result, err
 	}
 	return response.OK(*ConnectionEntityToResponse(entity)), nil
 }
 
-func (r *Repository) Delete(ctx context.Context, request *ConnectionDeleteRequest) (response.Response[ConnectionResponse], error) {
+func (r *Repository) Delete(ctx context.Context, ownerID int64, request *ConnectionDeleteRequest) (response.Response[ConnectionResponse], error) {
 	var result response.Response[ConnectionResponse]
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var entity Connection
-		if err := tx.Where("id = ?", request.ID).Take(&entity).Error; err != nil {
+		if err := tx.Where("id = ? and created_by = ?", request.ID, ownerID).Take(&entity).Error; err != nil {
 			if database.IsNotFound(err) {
 				return apperrors.NotFound("连接不存在")
 			}
@@ -99,7 +99,7 @@ func (r *Repository) Delete(ctx context.Context, request *ConnectionDeleteReques
 		if err := r.cleaner.DeleteOwnedWithTx(ctx, tx, entity.ID); err != nil {
 			return err
 		}
-		deleted := tx.Where("id = ?", entity.ID).Delete(&Connection{})
+		deleted := tx.Where("id = ? and created_by = ?", entity.ID, ownerID).Delete(&Connection{})
 		if deleted.Error != nil {
 			return deleted.Error
 		}
@@ -115,7 +115,7 @@ func (r *Repository) Delete(ctx context.Context, request *ConnectionDeleteReques
 	return result, nil
 }
 
-func (r *Repository) Search(ctx context.Context, search *ConnectionSearch) (response.PageResponse[ConnectionSimple], error) {
+func (r *Repository) Search(ctx context.Context, ownerID int64, search *ConnectionSearch) (response.PageResponse[ConnectionSimple], error) {
 	var result response.PageResponse[ConnectionSimple]
 	page, pageSize, err := domain.NormalizePage(search.Page, search.PageSize)
 	if err != nil {
@@ -132,7 +132,7 @@ func (r *Repository) Search(ctx context.Context, search *ConnectionSearch) (resp
 	search.Page = page
 	search.PageSize = pageSize
 	makeQuery := func() *gorm.DB {
-		query := r.db.WithContext(ctx).Model(&Connection{})
+		query := r.db.WithContext(ctx).Model(&Connection{}).Where("created_by = ?", ownerID)
 		if keyword := strings.TrimSpace(search.Keyword); keyword != "" {
 			query = query.Where("name like ? escape '\\'", "%"+escapeLike(keyword)+"%")
 		}
@@ -157,8 +157,8 @@ func (r *Repository) Search(ctx context.Context, search *ConnectionSearch) (resp
 	return response.PageResponse[ConnectionSimple]{Data: items, Total: total, Page: page, PageSize: pageSize}, nil
 }
 
-func (r *Repository) List(ctx context.Context, ids []int64) ([]Connection, error) {
-	query := r.db.WithContext(ctx).Model(&Connection{}).Order("name asc")
+func (r *Repository) List(ctx context.Context, ownerID int64, ids []int64) ([]Connection, error) {
+	query := r.db.WithContext(ctx).Model(&Connection{}).Where("created_by = ?", ownerID).Order("name asc")
 	if len(ids) > 0 {
 		query = query.Where("id in ?", ids)
 	}
@@ -169,9 +169,9 @@ func (r *Repository) List(ctx context.Context, ids []int64) ([]Connection, error
 	return entities, nil
 }
 
-func (r *Repository) Count(ctx context.Context) (int64, error) {
+func (r *Repository) Count(ctx context.Context, ownerID int64) (int64, error) {
 	var total int64
-	err := r.db.WithContext(ctx).Model(&Connection{}).Count(&total).Error
+	err := r.db.WithContext(ctx).Model(&Connection{}).Where("created_by = ?", ownerID).Count(&total).Error
 	return total, err
 }
 
@@ -189,9 +189,9 @@ func (r *Repository) CreateMany(ctx context.Context, entities []*Connection) err
 	})
 }
 
-func (r *Repository) find(ctx context.Context, id int64) (*Connection, error) {
+func (r *Repository) find(ctx context.Context, ownerID, id int64) (*Connection, error) {
 	var entity Connection
-	err := r.db.WithContext(ctx).Where("id = ?", id).Take(&entity).Error
+	err := r.db.WithContext(ctx).Where("id = ? and created_by = ?", id, ownerID).Take(&entity).Error
 	if database.IsNotFound(err) {
 		return nil, apperrors.NotFound("连接不存在")
 	}

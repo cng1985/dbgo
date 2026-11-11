@@ -47,7 +47,7 @@
 | `POST /api/connection/create` | 新建。客户端不能指定 id |
 | `POST /api/connection/update` | 全量更新，必须带 `id` 和 `version`。密码空字符串表示保持原值，备注空字符串会清空 |
 | `POST /api/connection/one` | 单条 |
-| `POST /api/connection/search` | 分页。`keyword`、`driver`、`sort`、`direction` |
+| `POST /api/connection/search` | 分页，只返回当前用户创建的连接。`keyword`、`driver`、`sort`、`direction` |
 | `POST /api/connection/delete` | 不存在返回 404。重复删除仍是 404 |
 | `POST /api/connection/test` | 长请求。返回版本和耗时 |
 | `POST /api/connection/export` | `ids` 为空时导出全部，最多 500 个。`include_password` 为 true 时附带明文口令 |
@@ -66,7 +66,7 @@ SQLite 的 `sqlite_path` 可以是相对数据目录的路径。网络库需要�
 | `POST /api/catalog/tables` | 表 |
 | `POST /api/catalog/columns` | 字段 |
 | `POST /api/catalog/indexes` | 索引 |
-| `POST /api/catalog/suggest` | 查询提示。返回驱动、当前模式、模式列表，以及该模式下的表和字段。省略 `schema` 时用连接的默认模式。最多 300 张表、6000 个字段，超出时 `truncated` 为 true |
+| `POST /api/catalog/suggest` | 查询提示。返回驱动、当前模式、模式列表，以及该模式下的表和字段。省略 `schema` 时用连接的默认模式。最多 300 张表、6000 个字段，超出时 `truncated` 为 true。SQL Server 使用 `@p1` 参数 |
 | `POST /api/catalog/objects` | `kind` 为 `table`、`view`、`procedure`、`function`、`routine` 或空。SQLite 的例程 `supported` 为 false |
 | `POST /api/catalog/definition` | 读取表、视图、存储过程或函数的 SQL |
 | `POST /api/catalog/preview` | 按列、查询或例程主体生成 DDL，不连接目标库 |

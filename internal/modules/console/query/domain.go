@@ -11,7 +11,8 @@ type QueryExecuteRequest struct {
 }
 
 type QueryOneRequest struct {
-	ID int64 `json:"id,string"`
+	ID      int64 `json:"id,string"`
+	ActorID int64 `json:"-"`
 }
 
 type QuerySearch struct {
@@ -19,6 +20,7 @@ type QuerySearch struct {
 	Status       string `json:"status"`
 	Page         int    `json:"page"`
 	PageSize     int    `json:"page_size"`
+	ActorID      int64  `json:"-"`
 }
 
 type QueryColumn struct {

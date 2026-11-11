@@ -15,7 +15,8 @@ const connectionDocumentFormat = "dbgo-connections"
 
 func (r *Resource) Export(ctx context.Context, request *ConnectionExportRequest) (response.Response[ConnectionDocument], error) {
 	var zero response.Response[ConnectionDocument]
-	if _, err := r.authorize(ctx, "connection:read"); err != nil {
+	scope, err := r.authorize(ctx, "connection:read")
+	if err != nil {
 		return zero, err
 	}
 	if request == nil {
@@ -26,7 +27,7 @@ func (r *Resource) Export(ctx context.Context, request *ConnectionExportRequest)
 		return zero, err
 	}
 	if len(ids) == 0 {
-		total, err := r.repo.Count(ctx)
+		total, err := r.repo.Count(ctx, scope.ActorID)
 		if err != nil {
 			return zero, err
 		}
@@ -34,7 +35,7 @@ func (r *Resource) Export(ctx context.Context, request *ConnectionExportRequest)
 			return zero, apperrors.Invalid("连接超过 500 个，请按主键分批导出")
 		}
 	}
-	entities, err := r.repo.List(ctx, ids)
+	entities, err := r.repo.List(ctx, scope.ActorID, ids)
 	if err != nil {
 		return zero, err
 	}
@@ -98,7 +99,7 @@ func (r *Resource) Import(ctx context.Context, request *ConnectionImportRequest)
 	default:
 		return zero, apperrors.Invalid("重名策略只支持 skip、rename、error")
 	}
-	existing, err := r.repo.List(ctx, nil)
+	existing, err := r.repo.List(ctx, scope.ActorID, nil)
 	if err != nil {
 		return zero, err
 	}

@@ -42,7 +42,7 @@ func TestDeleteRollsBackWhileMigrationBusy(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	_, err = repo.Delete(context.Background(), &ConnectionDeleteRequest{ID: created.Data.ID})
+	_, err = repo.Delete(context.Background(), 1, &ConnectionDeleteRequest{ID: created.Data.ID})
 	appErr, ok := apperrors.As(err)
 	if !ok || appErr.Kind != apperrors.KindConflict {
 		t.Fatalf("执行中的迁移应阻止删除: %v", err)
@@ -61,7 +61,7 @@ func TestDeleteRollsBackWhileMigrationBusy(t *testing.T) {
 	if err := gdb.Model(&migration.DataMigration{}).Where("connection_id = ?", created.Data.ID).Update("status", "draft").Error; err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.Delete(context.Background(), &ConnectionDeleteRequest{ID: created.Data.ID}); err != nil {
+	if _, err := repo.Delete(context.Background(), 1, &ConnectionDeleteRequest{ID: created.Data.ID}); err != nil {
 		t.Fatal(err)
 	}
 	if err := gdb.Model(&Connection{}).Count(&connections).Error; err != nil {

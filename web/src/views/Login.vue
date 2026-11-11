@@ -90,7 +90,7 @@ async function submit() {
       <button class="btn btn-primary btn-block" type="submit" :disabled="pending">{{ mode === 'register' ? '注册并进入' : '登录' }}</button>
       <button v-if="allowRegister && mode === 'login'" class="btn btn-block" type="button" @click="switchMode('register')">注册账号</button>
       <button v-if="mode === 'register'" class="btn btn-block" type="button" @click="switchMode('login')">已有账号，去登录</button>
-      <p class="muted login-foot">支持 MySQL、SQLite、PostgreSQL、SQL Server。注册后的成员与管理员共用连接。</p>
+      <p class="muted login-foot">支持 MySQL、SQLite、PostgreSQL、SQL Server。每个账号只能看到自己创建的连接。</p>
     </form>
   </section>
 </template>

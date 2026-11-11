@@ -151,6 +151,7 @@ func (r *Resource) One(ctx context.Context, request *QueryOneRequest) (response.
 	if request == nil || request.ID <= 0 {
 		return zero, apperrors.Invalid("主键无效")
 	}
+	request.ActorID = scope.ActorID
 	return r.repo.One(ctx, request)
 }
 
@@ -175,5 +176,6 @@ func (r *Resource) Search(ctx context.Context, search *QuerySearch) (response.Pa
 	}
 	search.Page = page
 	search.PageSize = pageSize
+	search.ActorID = scope.ActorID
 	return r.repo.Search(ctx, search)
 }

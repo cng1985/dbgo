@@ -315,7 +315,7 @@ func collectSQLServer(ctx context.Context, db *sql.DB, schema string) (Snapshot,
 		args = append(args, schema)
 	}
 	sizeQuery += " group by s.name, t.name order by sum(a.total_pages) desc"
-	sizes, err := db.QueryContext(ctx, sizeQuery, args...)
+	sizes, err := db.QueryContext(ctx, RewritePlaceholders("sqlserver", sizeQuery), args...)
 	if err != nil {
 		snap.Notes = append(snap.Notes, "读取表大小失败："+clip(err.Error()))
 	} else {

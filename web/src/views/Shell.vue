@@ -935,7 +935,7 @@ onBeforeUnmount(() => {
       <form class="stack" @submit.prevent="aboutDialog.close()">
         <h2>关于 DBGo</h2>
         <p>网页版数据库工作台。可以管理连接、设计表和例程、看性能、并用 OpenAI 协议的模型优化 SQL。</p>
-        <p class="muted">支持 SQLite、MySQL、PostgreSQL 和 SQL Server。查询默认只读，写入前取消只读。注册用户与管理员共用这套连接。</p>
+        <p class="muted">支持 SQLite、MySQL、PostgreSQL 和 SQL Server。查询默认只读，写入前取消只读。每个账号只能看到自己创建的连接。</p>
         <div class="actions">
           <button class="btn" type="submit">关闭</button>
         </div>

@@ -29,8 +29,13 @@ func TestPostgresPlaceholdersStayInsideLiterals(t *testing.T) {
 	if got != want {
 		t.Fatalf("占位符改写错误: %s", got)
 	}
+	server := RewritePlaceholders("mssql", "select '?' as mark where name = ? and note = '?' and id = ?")
+	wantServer := "select '?' as mark where name = @p1 and note = '?' and id = @p2"
+	if server != wantServer {
+		t.Fatalf("sqlserver 占位符改写错误: %s", server)
+	}
 	if RewritePlaceholders("mysql", "select ?") != "select ?" {
-		t.Fatal("非 postgres 不应改写占位符")
+		t.Fatal("mysql 不应改写占位符")
 	}
 }
 

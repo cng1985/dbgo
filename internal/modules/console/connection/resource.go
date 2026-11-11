@@ -62,13 +62,14 @@ func (r *Resource) Create(ctx context.Context, request *ConnectionRequest) (resp
 
 func (r *Resource) Update(ctx context.Context, request *ConnectionRequest) (response.Response[ConnectionResponse], error) {
 	var zero response.Response[ConnectionResponse]
-	if _, err := r.authorize(ctx, "connection:write"); err != nil {
+	scope, err := r.authorize(ctx, "connection:write")
+	if err != nil {
 		return zero, err
 	}
 	if request == nil || request.ID <= 0 || request.Version <= 0 {
 		return zero, apperrors.Invalid("修改连接需要有效主键和版本")
 	}
-	current, err := r.repo.find(ctx, request.ID)
+	current, err := r.repo.find(ctx, scope.ActorID, request.ID)
 	if err != nil {
 		return zero, err
 	}
@@ -96,34 +97,37 @@ func (r *Resource) Update(ctx context.Context, request *ConnectionRequest) (resp
 		"ssl_mode":        normalized.SSLMode,
 		"remark":          normalized.Remark,
 	}
-	return r.repo.Update(ctx, request, fields)
+	return r.repo.Update(ctx, scope.ActorID, request, fields)
 }
 
 func (r *Resource) One(ctx context.Context, request *ConnectionRequest) (response.Response[ConnectionResponse], error) {
 	var zero response.Response[ConnectionResponse]
-	if _, err := r.authorize(ctx, "connection:read"); err != nil {
+	scope, err := r.authorize(ctx, "connection:read")
+	if err != nil {
 		return zero, err
 	}
 	if request == nil || request.ID <= 0 {
 		return zero, apperrors.Invalid("主键无效")
 	}
-	return r.repo.One(ctx, request)
+	return r.repo.One(ctx, scope.ActorID, request)
 }
 
 func (r *Resource) Delete(ctx context.Context, request *ConnectionDeleteRequest) (response.Response[ConnectionResponse], error) {
 	var zero response.Response[ConnectionResponse]
-	if _, err := r.authorize(ctx, "connection:write"); err != nil {
+	scope, err := r.authorize(ctx, "connection:write")
+	if err != nil {
 		return zero, err
 	}
 	if request == nil || request.ID <= 0 {
 		return zero, apperrors.Invalid("主键无效")
 	}
-	return r.repo.Delete(ctx, request)
+	return r.repo.Delete(ctx, scope.ActorID, request)
 }
 
 func (r *Resource) Search(ctx context.Context, search *ConnectionSearch) (response.PageResponse[ConnectionSimple], error) {
 	var zero response.PageResponse[ConnectionSimple]
-	if _, err := r.authorize(ctx, "connection:read"); err != nil {
+	scope, err := r.authorize(ctx, "connection:read")
+	if err != nil {
 		return zero, err
 	}
 	if search == nil {
@@ -141,7 +145,7 @@ func (r *Resource) Search(ctx context.Context, search *ConnectionSearch) (respon
 	}
 	search.Page = page
 	search.PageSize = pageSize
-	return r.repo.Search(ctx, search)
+	return r.repo.Search(ctx, scope.ActorID, search)
 }
 
 func (r *Resource) Describe(ctx context.Context, id int64) (string, string, error) {
@@ -154,7 +158,8 @@ func (r *Resource) Describe(ctx context.Context, id int64) (string, string, erro
 
 func (r *Resource) Test(ctx context.Context, request *ConnectionRequest) (response.Response[ConnectionResponse], error) {
 	var zero response.Response[ConnectionResponse]
-	if _, err := r.authorize(ctx, "connection:read"); err != nil {
+	scope, err := r.authorize(ctx, "connection:read")
+	if err != nil {
 		return zero, err
 	}
 	if request == nil || request.ID <= 0 {
@@ -170,7 +175,7 @@ func (r *Resource) Test(ctx context.Context, request *ConnectionRequest) (respon
 	if err != nil {
 		return zero, apperrors.Business(10001, apperrors.KindUnavailable, "读取数据库版本失败", err)
 	}
-	result, err := r.repo.One(ctx, request)
+	result, err := r.repo.One(ctx, scope.ActorID, request)
 	if err != nil {
 		return zero, err
 	}

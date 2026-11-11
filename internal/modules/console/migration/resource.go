@@ -75,6 +75,9 @@ func (r *Resource) Update(ctx context.Context, request *MigrationRequest) (respo
 	if err != nil {
 		return zero, err
 	}
+	if err := r.requireMigrationConnection(ctx, current.ConnectionID); err != nil {
+		return zero, err
+	}
 	request.ConnectionID = current.ConnectionID
 	request.VersionNo = current.VersionNo
 	normalized, err := r.normalize(request)
@@ -97,7 +100,14 @@ func (r *Resource) One(ctx context.Context, request *MigrationRequest) (response
 	if request == nil || request.ID <= 0 {
 		return zero, apperrors.Invalid("主键无效")
 	}
-	return r.repo.One(ctx, request)
+	result, err := r.repo.One(ctx, request)
+	if err != nil {
+		return zero, err
+	}
+	if err := r.requireMigrationConnection(ctx, result.Data.ConnectionID); err != nil {
+		return zero, err
+	}
+	return result, nil
 }
 
 func (r *Resource) Delete(ctx context.Context, request *MigrationRequest) (response.Response[MigrationResponse], error) {
@@ -108,12 +118,20 @@ func (r *Resource) Delete(ctx context.Context, request *MigrationRequest) (respo
 	if request == nil || request.ID <= 0 {
 		return zero, apperrors.Invalid("主键无效")
 	}
+	current, err := r.repo.find(ctx, request.ID)
+	if err != nil {
+		return zero, err
+	}
+	if err := r.requireMigrationConnection(ctx, current.ConnectionID); err != nil {
+		return zero, err
+	}
 	return r.repo.Delete(ctx, request)
 }
 
 func (r *Resource) Search(ctx context.Context, search *MigrationSearch) (response.PageResponse[MigrationSimple], error) {
 	var zero response.PageResponse[MigrationSimple]
-	if _, err := r.authorize(ctx, "migration:read"); err != nil {
+	scope, err := r.authorize(ctx, "migration:read")
+	if err != nil {
 		return zero, err
 	}
 	if search == nil {
@@ -128,6 +146,7 @@ func (r *Resource) Search(ctx context.Context, search *MigrationSearch) (respons
 	}
 	search.Page = page
 	search.PageSize = pageSize
+	search.OwnerID = scope.ActorID
 	return r.repo.Search(ctx, search)
 }
 
@@ -144,6 +163,9 @@ func (r *Resource) Apply(ctx context.Context, request *MigrationActionRequest) (
 	}
 	if request.ConnectionID <= 0 {
 		return zero, apperrors.Invalid("请指定迁移或连接")
+	}
+	if err := r.requireConnection(ctx, request.ConnectionID); err != nil {
+		return zero, err
 	}
 	items, err := r.repo.listStatus(ctx, request.ConnectionID, "draft")
 	if err != nil {
@@ -172,6 +194,9 @@ func (r *Resource) Rollback(ctx context.Context, request *MigrationActionRequest
 	}
 	current, err := r.repo.find(ctx, request.ID)
 	if err != nil {
+		return zero, err
+	}
+	if err := r.requireMigrationConnection(ctx, current.ConnectionID); err != nil {
 		return zero, err
 	}
 	if strings.TrimSpace(current.DownSQL) == "" {
@@ -204,6 +229,9 @@ func (r *Resource) Resolve(ctx context.Context, request *MigrationActionRequest)
 	}
 	current, err := r.repo.find(ctx, request.ID)
 	if err != nil {
+		return zero, err
+	}
+	if err := r.requireMigrationConnection(ctx, current.ConnectionID); err != nil {
 		return zero, err
 	}
 	switch request.Action {
@@ -249,6 +277,13 @@ func (r *Resource) Resolve(ctx context.Context, request *MigrationActionRequest)
 
 func (r *Resource) applyOne(ctx context.Context, id int64) (response.Response[MigrationResponse], error) {
 	var zero response.Response[MigrationResponse]
+	current, err := r.repo.find(ctx, id)
+	if err != nil {
+		return zero, err
+	}
+	if err := r.requireMigrationConnection(ctx, current.ConnectionID); err != nil {
+		return zero, err
+	}
 	claimed, err := r.repo.claim(ctx, id, "draft", "applying")
 	if err != nil {
 		return zero, err
@@ -302,6 +337,21 @@ func (r *Resource) normalize(request *MigrationRequest) (*MigrationRequest, erro
 		return nil, apperrors.TooLarge("迁移脚本超过长度限制")
 	}
 	return &MigrationRequest{ConnectionID: request.ConnectionID, VersionNo: request.VersionNo, Name: name, UpSQL: up, DownSQL: down}, nil
+}
+
+func (r *Resource) requireConnection(ctx context.Context, connectionID int64) error {
+	_, _, err := r.names.Describe(ctx, connectionID)
+	return err
+}
+
+func (r *Resource) requireMigrationConnection(ctx context.Context, connectionID int64) error {
+	if err := r.requireConnection(ctx, connectionID); err != nil {
+		if appErr, ok := apperrors.As(err); ok && appErr.Kind == apperrors.KindNotFound {
+			return apperrors.NotFound("迁移不存在")
+		}
+		return err
+	}
+	return nil
 }
 
 func (r *Resource) authorize(ctx context.Context, permission string) (domain.Scope, error) {

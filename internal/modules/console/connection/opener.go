@@ -29,7 +29,7 @@ func (o *TargetOpener) Open(ctx context.Context, connectionID int64) (*shared.Ta
 	if connectionID <= 0 {
 		return nil, apperrors.Invalid("连接主键无效")
 	}
-	entity, err := o.repo.find(ctx, connectionID)
+	entity, err := o.repo.find(ctx, scope.ActorID, connectionID)
 	if err != nil {
 		return nil, err
 	}
