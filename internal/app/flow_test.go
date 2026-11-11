@@ -135,8 +135,12 @@ func TestConsoleFlow(t *testing.T) {
 		"schema":        "main",
 		"sql":           "select id, name, population from city order by id",
 	})
-	if selected.Code != 200 {
+	if selected.Code != 200 || selected.Data["schema"] != "main" {
 		t.Fatalf("查询失败: %#v", selected)
+	}
+	reopened := post(t, client, base+"/api/query/one", map[string]any{"id": selected.Data["id"]})
+	if reopened.Code != 200 || reopened.Data["schema"] != "main" || reopened.Data["sql"] != "select id, name, population from city order by id" {
+		t.Fatalf("历史应记住选中的数据库: %#v", reopened)
 	}
 	statements, _ := selected.Data["statements"].([]any)
 	if len(statements) != 1 {

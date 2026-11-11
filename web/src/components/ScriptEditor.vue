@@ -164,6 +164,7 @@ async function openHistory(item) {
     const one = (await api('/api/query/one', { id: item.id })).data
     props.tab.sql = one.sql
     props.tab.readOnly = one.read_only
+    props.tab.schema = one.schema || ''
     props.tab.connectionId = one.connection_id
     error.value = one.error_message || ''
     panel.value = 'result'

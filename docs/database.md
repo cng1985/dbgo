@@ -4,7 +4,7 @@
 
 应用库保存控制台自己的数据，不保存目标库里的业务表。默认驱动是 SQLite，文件是数据目录下的 `app.db`。也可以把应用库换成 MySQL、PostgreSQL 或 SQL Server，但必须同时给出 DSN，连接失败会中止启动。
 
-启动时按顺序执行 `migrations/0001_init.<driver>.sql`、`migrations/0002_studio.<driver>.sql`、`migrations/0003_owner.<driver>.sql`、`migrations/0004_snippet.<driver>.sql` 和 `migrations/0005_etl.<driver>.sql`。脚本按驱动嵌入二进制。已执行版本记在 `schema_migration`，校验值不一致会拒绝启动。迁移期间按驱动加锁：SQLite 使用 `BEGIN IMMEDIATE`，MySQL 使用 `GET_LOCK`，PostgreSQL 使用 advisory lock，SQL Server 使用 `sp_getapplock`。
+启动时按顺序执行 `migrations/0001_init.<driver>.sql`、`migrations/0002_studio.<driver>.sql`、`migrations/0003_owner.<driver>.sql`、`migrations/0004_snippet.<driver>.sql`、`migrations/0005_etl.<driver>.sql` 和 `migrations/0006_query_schema.<driver>.sql`。脚本按驱动嵌入二进制。已执行版本记在 `schema_migration`，校验值不一致会拒绝启动。迁移期间按驱动加锁：SQLite 使用 `BEGIN IMMEDIATE`，MySQL 使用 `GET_LOCK`，PostgreSQL 使用 advisory lock，SQL Server 使用 `sp_getapplock`。
 
 | 表 | 内容 |
 | --- | --- |
@@ -12,7 +12,7 @@
 | `llm_profile` | OpenAI 协议模型。密钥是密文，名称唯一 |
 | `app_session` | 会话令牌哈希、过期和撤销时间 |
 | `db_connection` | 目标库连接。口令字段是密文，版本从 1 起。名称在同一创建人内唯一 |
-| `query_history` | SQL 文本、状态、耗时和行数，不保存结果网格 |
+| `query_history` | SQL 文本、当时选中的数据库或模式、状态、耗时和行数，不保存结果网格 |
 | `data_migration` | 目标库迁移脚本、校验值和状态 |
 | `data_backup` | 备份记录。文件在数据目录 `backups/` |
 | `etl_task` | ETL 任务。保存抽取语句、目标表、字段对应和写入方式。名称在同一创建人内唯一 |
