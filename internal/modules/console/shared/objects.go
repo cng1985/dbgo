@@ -310,7 +310,9 @@ func reconstructTable(ctx context.Context, db *sql.DB, driver, schema, name stri
 			Type:     safeType(column.Type),
 			Nullable: column.Nullable,
 			Primary:  column.Primary,
+			Identity: column.Identity,
 			Default:  column.Default,
+			Comment:  column.Comment,
 		})
 	}
 	script, err := RenderObject(ObjectDraft{

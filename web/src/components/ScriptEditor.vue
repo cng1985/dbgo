@@ -9,7 +9,7 @@ const props = defineProps({
   connections: { type: Array, default: () => [] },
   showResults: { type: Boolean, default: true }
 })
-const emit = defineEmits(['ran', 'close-results'])
+const emit = defineEmits(['ran', 'close-results', 'manage-snippets'])
 
 const schemas = ref([])
 const hintTables = ref([])
@@ -26,6 +26,8 @@ const editorRef = ref(null)
 const menu = ref(null)
 const advice = ref(null)
 const optimizing = ref(false)
+const snippets = ref([])
+const snippetID = ref('')
 let hintSeq = 0
 
 const driver = computed(() => props.connections.find((item) => item.id === props.tab.connectionId)?.driver || '')
@@ -198,6 +200,49 @@ async function optimize(payload) {
   }
 }
 
+async function loadSnippets() {
+  try {
+    const all = []
+    let page = 1
+    for (;;) {
+      const result = await api('/api/snippet/search', { page, page_size: 200, sort: 'name', direction: 'asc' })
+      const batch = result.data || []
+      all.push(...batch)
+      if (!batch.length || all.length >= (result.total || 0)) {
+        break
+      }
+      page += 1
+      if (page > 5) {
+        break
+      }
+    }
+    snippets.value = all
+  } catch (err) {
+    error.value = err.message
+  }
+}
+
+async function insertSnippet() {
+  if (!snippetID.value) {
+    return
+  }
+  error.value = ''
+  try {
+    const one = (await api('/api/snippet/one', { id: snippetID.value })).data
+    const body = one.body || ''
+    if (!body) {
+      return
+    }
+    if (editorRef.value?.insertAtCaret) {
+      editorRef.value.insertAtCaret(body)
+    } else {
+      props.tab.sql = props.tab.sql ? `${props.tab.sql.replace(/\s*$/, '')}\n${body}` : body
+    }
+  } catch (err) {
+    error.value = err.message
+  }
+}
+
 function applyAdvice() {
   if (advice.value?.sql) {
     props.tab.sql = advice.value.sql
@@ -323,6 +368,12 @@ defineExpose({ run, format, explain, optimize })
       <button class="btn" type="button" @click="format()">格式化</button>
       <button class="btn" type="button" :disabled="!tab.sql.trim()" @click="explain()">解释</button>
       <button class="btn" type="button" :disabled="!tab.connectionId || optimizing" @click="optimize()">AI 优化</button>
+      <select v-model="snippetID" aria-label="代码段" @focus="loadSnippets">
+        <option value="">代码段</option>
+        <option v-for="item in snippets" :key="item.id" :value="item.id">{{ item.name }}</option>
+      </select>
+      <button class="btn" type="button" :disabled="!snippetID" @click="insertSnippet">插入</button>
+      <button class="btn" type="button" @click="emit('manage-snippets')">管理</button>
       <span class="script-hint">{{ driver ? driverLabel(driver) + ' · ' : '' }}{{ hintText }}</span>
     </div>
     <p v-if="hintError" class="notice script-alert">结构提示不可用：{{ hintError }}。关键字提示仍然可用。</p>

@@ -102,7 +102,33 @@ export function defaultColumnType(driver) {
   return defaultTypeByDriver[normalizeColumnDriver(driver)]
 }
 
+export function matchColumnType(driver, current) {
+  const type = String(current || '').trim()
+  const options = columnTypes(driver)
+  if (!type) {
+    return defaultColumnType(driver)
+  }
+  if (options.includes(type)) {
+    return type
+  }
+  const folded = options.find((item) => item.toLowerCase() === type.toLowerCase())
+  return folded || type
+}
+
+export function columnTypeOptions(driver, current) {
+  const options = columnTypes(driver)
+  const type = matchColumnType(driver, current)
+  if (!type || options.includes(type)) {
+    return options
+  }
+  return [type, ...options]
+}
+
 export function columnTypeFor(driver, current) {
   const options = columnTypes(driver)
-  return options.includes(current) ? current : defaultColumnType(driver)
+  if (options.includes(current)) {
+    return current
+  }
+  const folded = options.find((item) => item.toLowerCase() === String(current || '').trim().toLowerCase())
+  return folded || defaultColumnType(driver)
 }

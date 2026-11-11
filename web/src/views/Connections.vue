@@ -10,6 +10,8 @@ const error = ref('')
 const notice = ref('')
 const dialog = ref(null)
 const fileInput = ref(null)
+const selected = ref([])
+const includePassword = ref(false)
 const conflict = ref('rename')
 const form = reactive(blank())
 const props = defineProps({
@@ -122,6 +124,51 @@ async function remove(row) {
   }
 }
 
+function toggle(id, checked) {
+  if (checked) {
+    selected.value = [...new Set([...selected.value, id])]
+    return
+  }
+  selected.value = selected.value.filter((item) => item !== id)
+}
+
+async function exportConnections() {
+  error.value = ''
+  notice.value = ''
+  const ids = selected.value.length ? selected.value : rows.value.map((row) => row.id)
+  if (!ids.length) {
+    error.value = '没有可导出的连接'
+    return
+  }
+  if (includePassword.value && !window.confirm('导出文件会包含数据库口令。请只把文件交给需要它的人。')) {
+    return
+  }
+  try {
+    const document = (await api('/api/connection/export', {
+      ids,
+      include_password: includePassword.value
+    })).data
+    downloadJSON(document, 'dbgo-connections.json')
+    notice.value = includePassword.value
+      ? `已导出 ${document.connections?.length || 0} 个连接，文件包含口令`
+      : `已导出 ${document.connections?.length || 0} 个连接，未包含口令`
+  } catch (err) {
+    error.value = err.message
+  }
+}
+
+function downloadJSON(document, filename) {
+  const blob = new Blob([JSON.stringify(document, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = window.document.createElement('a')
+  link.href = url
+  link.download = filename
+  window.document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
 async function onImport(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
@@ -163,6 +210,17 @@ watch(() => props.command, async (command) => {
     openCreate()
   } else if (command.type === 'edit' && command.id) {
     await openEdit({ id: command.id })
+  } else if (command.type === 'export') {
+    try {
+      await load()
+    } catch (err) {
+      error.value = err.message
+      return
+    }
+    if (command.id) {
+      selected.value = [command.id]
+    }
+    await exportConnections()
   } else if (command.type === 'import') {
     fileInput.value?.click()
   }
@@ -191,11 +249,13 @@ onMounted(load)
         </select>
         <button class="btn" type="button" @click="load">搜索</button>
       </div>
+      <label class="check"><input v-model="includePassword" type="checkbox" /> 导出含口令</label>
       <select v-model="conflict" aria-label="重名策略">
         <option value="rename">重名则改名</option>
         <option value="skip">重名则跳过</option>
         <option value="error">重名则失败</option>
       </select>
+      <button class="btn" type="button" @click="exportConnections">导出</button>
       <button class="btn" type="button" @click="fileInput?.click()">导入</button>
       <input ref="fileInput" class="file-input" type="file" accept="application/json,.json" @change="onImport" />
       <button class="btn btn-primary" type="button" @click="openCreate">新建连接</button>
@@ -203,11 +263,12 @@ onMounted(load)
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>名称</th><th>驱动</th><th>目标</th><th>版本</th><th>更新时间</th><th></th></tr>
+          <tr><th></th><th>名称</th><th>驱动</th><th>目标</th><th>版本</th><th>更新时间</th><th></th></tr>
         </thead>
         <tbody>
-          <tr v-if="!rows.length"><td colspan="6" class="empty">没有连接。可以先建一个 SQLite 文件。</td></tr>
+          <tr v-if="!rows.length"><td colspan="7" class="empty">没有连接。可以先建一个 SQLite 文件。</td></tr>
           <tr v-for="row in rows" :key="row.id">
+            <td><input type="checkbox" :checked="selected.includes(row.id)" :aria-label="'选择 ' + row.name" @change="toggle(row.id, $event.target.checked)" /></td>
             <td>{{ row.name }}</td>
             <td><span class="tag">{{ driverLabel(row.driver) }}</span></td>
             <td class="wrap">{{ target(row) }}</td>

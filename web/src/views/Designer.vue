@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { api, driverLabel } from '../api'
-import { columnTypeFor, columnTypes, defaultColumnType } from '../columnTypes.js'
+import { columnTypeFor, columnTypeOptions, defaultColumnType, matchColumnType } from '../columnTypes.js'
 
 const props = defineProps({
   command: { type: Object, default: null },
@@ -24,12 +24,15 @@ const note = ref('')
 const error = ref('')
 const pending = ref(false)
 const driver = computed(() => props.connections.find((item) => item.id === connectionID.value)?.driver || 'sqlite')
-const typeOptions = computed(() => columnTypes(driver.value))
 const isRoutine = computed(() => kind.value === 'procedure' || kind.value === 'function')
 const sqliteRoutine = computed(() => driver.value === 'sqlite' && isRoutine.value)
 
 function blankColumn(primary = false) {
-  return { name: primary ? 'id' : '', type: defaultColumnType(driver.value), nullable: !primary, primary, identity: primary, default: '' }
+  return { name: primary ? 'id' : '', type: defaultColumnType(driver.value), nullable: !primary, primary, identity: primary, default: '', comment: '' }
+}
+
+function optionsFor(type) {
+  return columnTypeOptions(driver.value, type)
 }
 
 function blankParam() {
@@ -66,6 +69,9 @@ watch(() => props.command, async (command) => {
   note.value = ''
   if (command.type === 'edit' && command.name) {
     await loadDefinition()
+  } else {
+    columns.value = [blankColumn(true)]
+    sql.value = ''
   }
 }, { immediate: true })
 
@@ -117,7 +123,20 @@ async function loadDefinition() {
     replace.value = kind.value !== 'table'
     const hints = [result.note || '']
     if (kind.value === 'table') {
-      hints.push('这是当前定义。勾选“替换已有对象”后重新生成 SQL 会先删除这张表。')
+      const loaded = Array.isArray(result.columns) ? result.columns : []
+      columns.value = loaded.map((item) => ({
+        name: item.name || '',
+        type: matchColumnType(driver.value, item.type),
+        nullable: !!item.nullable,
+        primary: !!item.primary,
+        identity: !!item.identity,
+        default: item.default || '',
+        comment: item.comment || ''
+      }))
+      if (!loaded.length) {
+        error.value = '没有读到字段'
+      }
+      hints.push('字段、类型和注释已填入表格。生成 SQL 会按表格覆盖编辑器里的建表语句。勾选“替换已有对象”后会先删除这张表。')
     } else if (driver.value === 'sqlite' && kind.value === 'view') {
       hints.push('SQLite 需要先删除同名视图。勾选替换后重新生成，或在语句前写 DROP VIEW IF EXISTS。')
     }
@@ -198,19 +217,21 @@ async function apply() {
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>名称</th><th>类型</th><th>可空</th><th>主键</th><th>自增</th><th>默认值</th><th></th></tr></thead>
+          <thead><tr><th>名称</th><th>类型</th><th>可空</th><th>主键</th><th>自增</th><th>默认值</th><th>注释</th><th></th></tr></thead>
           <tbody>
+            <tr v-if="!columns.length"><td colspan="8" class="empty">没有字段。</td></tr>
             <tr v-for="(column, index) in columns" :key="index">
               <td><input v-model="column.name" aria-label="列名" /></td>
               <td>
                 <select v-model="column.type" aria-label="类型">
-                  <option v-for="item in typeOptions" :key="item" :value="item">{{ item }}</option>
+                  <option v-for="item in optionsFor(column.type)" :key="item" :value="item">{{ item }}</option>
                 </select>
               </td>
               <td><input v-model="column.nullable" type="checkbox" aria-label="可空" /></td>
               <td><input v-model="column.primary" type="checkbox" aria-label="主键" /></td>
               <td><input v-model="column.identity" type="checkbox" aria-label="自增" /></td>
               <td><input v-model="column.default" aria-label="默认值" /></td>
+              <td><input v-model="column.comment" aria-label="注释" /></td>
               <td><button class="btn" type="button" @click="columns.splice(index, 1)">删除</button></td>
             </tr>
           </tbody>

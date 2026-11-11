@@ -50,7 +50,8 @@
 | `POST /api/connection/search` | 分页，只返回当前用户创建的连接。`keyword`、`driver`、`sort`、`direction` |
 | `POST /api/connection/delete` | 不存在返回 404。重复删除仍是 404 |
 | `POST /api/connection/test` | 长请求。返回版本和耗时 |
-| `POST /api/connection/import` | `document` 为 `dbgo-connections` 版本 1。`on_conflict` 为 `skip`、`rename` 或 `error`，默认改名。一次最多 200 个。不提供连接导出 |
+| `POST /api/connection/export` | 导出当前用户的连接。`ids` 为空时导出全部，超过 500 个要分批。`include_password` 为 true 时文件包含口令，默认不包含 |
+| `POST /api/connection/import` | `document` 为 `dbgo-connections` 版本 1。`on_conflict` 为 `skip`、`rename` 或 `error`，默认改名。一次最多 200 个 |
 
 SQLite 的 `sqlite_path` 可以是相对数据目录的路径。网络库需要主机、库名和用户名，端口 0 使用默认端口。PostgreSQL 的 `ssl_mode` 可以是 `disable`、`require`、`verify-ca`、`verify-full`。
 
@@ -63,13 +64,13 @@ SQLite 的 `sqlite_path` 可以是相对数据目录的路径。网络库需要�
 | `POST /api/query/search` | 可按连接和 `success`/`failed` 筛选 |
 | `POST /api/catalog/schemas` | 模式 |
 | `POST /api/catalog/tables` | 表 |
-| `POST /api/catalog/columns` | 字段 |
+| `POST /api/catalog/columns` | 字段。类型带长度或精度，并返回 `comment`、`identity` |
 | `POST /api/catalog/indexes` | 索引 |
 | `POST /api/catalog/suggest` | 查询提示。返回驱动、当前模式、模式列表，以及该模式下的表和字段。省略 `schema` 时用连接的默认模式。最多 300 张表、6000 个字段，超出时 `truncated` 为 true。SQL Server 使用 `@p1` 参数 |
 | `POST /api/catalog/objects` | `kind` 为 `table`、`view`、`procedure`、`function`、`routine` 或空。SQLite 的例程 `supported` 为 false |
-| `POST /api/catalog/definition` | 读取表、视图、存储过程或函数的 SQL |
-| `POST /api/catalog/preview` | 按列、查询或例程主体生成 DDL，不连接目标库。页面建表时按驱动选择列类型 |
-| `POST /api/catalog/apply` | 长请求。在选定连接上执行最多 30 条对象语句 |
+| `POST /api/catalog/definition` | 读取表、视图、存储过程或函数的 SQL。表还会返回全部字段，含类型、默认值、自增和注释 |
+| `POST /api/catalog/preview` | 按列、查询或例程主体生成 DDL，不连接目标库。列可以带 `comment`。页面建表时按驱动选择列类型，已有类型不在预设里时仍保留 |
+| `POST /api/catalog/apply` | 长请求。在选定连接上执行最多 300 条对象语句 |
 
 单次查询最多 50 条语句。结果行数默认 100，不超过配置上限。`load_extension`、`xp_cmdshell` 和 `FROM PROGRAM` 会被拒绝。
 
@@ -115,6 +116,20 @@ SQL 备份最多 200 张表，并受 `backup.max_rows` 与 `backup.max_bytes` �
 | `POST /api/monitor/snapshot` | 长请求。返回指标、会话和对象大小。读不到的部分写入 `notes` |
 
 模型服务走 OpenAI Chat Completions。密钥用 AES-GCM 保存。地址不能带账号，也不能指向云元数据地址。
+
+## 代码段
+
+| 路径 | 说明 |
+| --- | --- |
+| `POST /api/snippet/create` | `name`、`body`，可选 `description` 和 `driver`。每个账号最多 500 个，名称在自己的代码段里唯一 |
+| `POST /api/snippet/update` | 全量更新，必须带 `id` 和 `version` |
+| `POST /api/snippet/one` | 单条，含内容。看不到别人的代码段 |
+| `POST /api/snippet/search` | 分页。列表不含内容 |
+| `POST /api/snippet/delete` | 删除 |
+| `POST /api/snippet/export` | `ids` 为空时导出全部。文件格式是 `dbgo-snippets` 版本 1 |
+| `POST /api/snippet/import` | `document` 与 `on_conflict`。策略同连接导入，一次最多 500 个，与导出上限一致 |
+
+`driver` 为空表示不限数据库，否则是 `sqlite`、`mysql`、`postgres` 或 `sqlserver`。
 
 ## 健康
 

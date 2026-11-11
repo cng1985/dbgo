@@ -46,7 +46,7 @@ function tableNode(connection, schema, table) {
         id: `col-${connection.id}-${schema}-${table.name}-${column.name}`,
         kind: column.primary ? 'key' : 'column',
         label: column.name,
-        meta: column.type || '',
+        meta: [column.type, column.comment].filter(Boolean).join(' · '),
         leaf: true,
         connection,
         schema,

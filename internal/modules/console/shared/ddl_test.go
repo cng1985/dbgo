@@ -61,6 +61,94 @@ func TestRenderTableKeepsDriverType(t *testing.T) {
 	}
 }
 
+func TestRenderTableKeepsComment(t *testing.T) {
+	cases := []struct {
+		driver string
+		want   string
+	}{
+		{driver: "sqlite", want: "/* 城市名 */"},
+		{driver: "mysql", want: "COMMENT '城市名'"},
+		{driver: "postgres", want: `COMMENT ON COLUMN "city"."name" IS '城市名'`},
+		{driver: "sqlserver", want: "@value = N'城市名'"},
+	}
+	for _, tc := range cases {
+		sqlText, err := RenderObject(ObjectDraft{
+			Driver: tc.driver,
+			Kind:   "table",
+			Name:   "city",
+			Columns: []ColumnDraft{{
+				Name: "name", Type: "text", Nullable: true, Comment: "城市名",
+			}},
+		})
+		if err != nil {
+			t.Fatalf("%s 建表失败: %v", tc.driver, err)
+		}
+		if !strings.Contains(sqlText, tc.want) {
+			t.Fatalf("%s 建表语句应包含注释 %s: %s", tc.driver, tc.want, sqlText)
+		}
+	}
+}
+
+func TestFormatDefaultKeepsExpression(t *testing.T) {
+	sqlText, err := RenderObject(ObjectDraft{
+		Driver: "postgres",
+		Kind:   "table",
+		Name:   "city",
+		Columns: []ColumnDraft{{
+			Name: "id", Type: "bigint", Nullable: false, Primary: true,
+			Default: "nextval('city_id_seq'::regclass)",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sqlText, "DEFAULT nextval('city_id_seq'::regclass)") {
+		t.Fatalf("应保留序列默认值: %s", sqlText)
+	}
+	server, err := RenderObject(ObjectDraft{
+		Driver: "sqlserver",
+		Kind:   "table",
+		Name:   "city",
+		Columns: []ColumnDraft{{
+			Name: "name", Type: "nvarchar(255)", Default: "(N'杭州')",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(server, "DEFAULT (N'杭州')") {
+		t.Fatalf("应保留 SQL Server 默认值: %s", server)
+	}
+	literal, err := RenderObject(ObjectDraft{
+		Driver: "mysql",
+		Kind:   "table",
+		Name:   "city",
+		Columns: []ColumnDraft{{
+			Name: "name", Type: "varchar(40)", Default: "hello(world)",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(literal, "DEFAULT 'hello(world)'") {
+		t.Fatalf("带括号的字面默认值应加引号: %s", literal)
+	}
+	cast, err := RenderObject(ObjectDraft{
+		Driver: "mysql",
+		Kind:   "table",
+		Name:   "city",
+		Columns: []ColumnDraft{{
+			Name: "name", Type: "varchar(40)", Default: "hello::world",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cast, "DEFAULT 'hello::world'") {
+		t.Fatalf("普通文本里的冒号应作为字面量: %s", cast)
+	}
+}
+
 func TestSQLiteRejectsRoutines(t *testing.T) {
 	_, err := RenderObject(ObjectDraft{Driver: "sqlite", Kind: "procedure", Name: "save_city", Body: "select 1"})
 	if err == nil {

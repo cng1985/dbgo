@@ -197,12 +197,20 @@ func formatCell(value any, typeName string) *string {
 }
 
 func binaryType(typeName string) bool {
-	switch strings.ToLower(typeName) {
+	switch baseTypeName(typeName) {
 	case "blob", "bytea", "binary", "varbinary", "image", "raw", "tinyblob", "mediumblob", "longblob":
 		return true
 	default:
 		return false
 	}
+}
+
+func baseTypeName(typeName string) string {
+	name := strings.ToLower(strings.TrimSpace(typeName))
+	if i := strings.IndexByte(name, '('); i >= 0 {
+		name = strings.TrimSpace(name[:i])
+	}
+	return name
 }
 
 func fmtHex(value []byte) string {

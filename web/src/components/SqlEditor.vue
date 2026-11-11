@@ -314,7 +314,7 @@ function onContextMenu(event) {
   emit('menu', { x: event.clientX, y: event.clientY, ...selection() })
 }
 
-defineExpose({ selection, replaceRange })
+defineExpose({ selection, replaceRange, insertAtCaret })
 
 onMounted(() => {
   if (input.value) {

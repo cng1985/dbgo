@@ -49,21 +49,40 @@ func (r *Resource) Definition(ctx context.Context, search *CatalogSearch) (respo
 		target.Close()
 		return zero, apperrors.Invalid("请选择对象")
 	}
-	sqlText, note, err := shared.ObjectDefinition(ctx, target.DB, target.Driver, schema, search.Name, search.Kind)
+	kind := strings.ToLower(strings.TrimSpace(search.Kind))
+	sqlText, note, err := shared.ObjectDefinition(ctx, target.DB, target.Driver, schema, search.Name, kind)
 	if err != nil {
 		if errors.Is(err, shared.ErrObjectNotFound) {
 			return zero, apperrors.NotFound("对象不存在")
 		}
 		return zero, apperrors.Business(10002, apperrors.KindInvalid, shared.PublicError("读取定义失败", "", err), err)
 	}
+	columns := []CatalogColumnDraft{}
+	if kind == "table" {
+		items, err := shared.ListColumns(ctx, target.DB, target.Driver, schema, search.Name)
+		if err != nil {
+			return zero, apperrors.Business(10002, apperrors.KindInvalid, shared.PublicError("读取字段失败", "", err), err)
+		}
+		if len(items) == 0 {
+			return zero, apperrors.NotFound("对象不存在")
+		}
+		columns = make([]CatalogColumnDraft, 0, len(items))
+		for _, item := range items {
+			columns = append(columns, CatalogColumnDraft{
+				Name: item.Name, Type: item.Type, Nullable: item.Nullable, Primary: item.Primary,
+				Identity: item.Identity, Default: item.Default, Comment: item.Comment,
+			})
+		}
+	}
 	return response.OK(CatalogDefinitionResponse{
 		Driver:   target.Driver,
 		Schema:   schema,
 		Name:     search.Name,
-		Kind:     strings.ToLower(strings.TrimSpace(search.Kind)),
+		Kind:     kind,
 		SQL:      sqlText,
 		Editable: true,
 		Note:     note,
+		Columns:  columns,
 	}), nil
 }
 
@@ -114,7 +133,7 @@ func (r *Resource) Apply(ctx context.Context, request *CatalogApplyRequest) (res
 	results, err := shared.Execute(ctx, target.DB, target.Driver, sqlText, shared.ExecOptions{
 		ReadOnly:      false,
 		MaxRows:       20,
-		MaxStatements: 30,
+		MaxStatements: 300,
 	})
 	if err != nil {
 		return zero, apperrors.Business(10002, apperrors.KindInvalid, shared.PublicError("执行对象语句失败", "", err), err)
@@ -141,6 +160,7 @@ func draftFrom(request *CatalogPreviewRequest) shared.ObjectDraft {
 			Primary:  column.Primary,
 			Identity: column.Identity,
 			Default:  column.Default,
+			Comment:  column.Comment,
 		})
 	}
 	params := make([]shared.ParamDraft, 0, len(request.Params))

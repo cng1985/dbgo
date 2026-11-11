@@ -3,6 +3,7 @@ package connection
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +12,65 @@ import (
 )
 
 const connectionDocumentFormat = "dbgo-connections"
+
+func (r *Resource) Export(ctx context.Context, request *ConnectionExportRequest) (response.Response[ConnectionDocument], error) {
+	var zero response.Response[ConnectionDocument]
+	scope, err := r.authorize(ctx, "connection:read")
+	if err != nil {
+		return zero, err
+	}
+	if request == nil {
+		request = &ConnectionExportRequest{}
+	}
+	ids, err := parseIDs(request.IDs)
+	if err != nil {
+		return zero, err
+	}
+	if len(ids) == 0 {
+		total, err := r.repo.Count(ctx, scope.ActorID)
+		if err != nil {
+			return zero, err
+		}
+		if total > 500 {
+			return zero, apperrors.Invalid("连接超过 500 个，请按主键分批导出")
+		}
+	}
+	entities, err := r.repo.List(ctx, scope.ActorID, ids)
+	if err != nil {
+		return zero, err
+	}
+	if len(ids) > 0 && len(entities) != len(uniqueIDs(ids)) {
+		return zero, apperrors.NotFound("有连接不存在")
+	}
+	items := make([]ConnectionPortable, 0, len(entities))
+	for i := range entities {
+		item := ConnectionPortable{
+			Name:         entities[i].Name,
+			Driver:       entities[i].Driver,
+			Host:         entities[i].Host,
+			Port:         entities[i].Port,
+			DatabaseName: entities[i].DatabaseName,
+			Username:     entities[i].Username,
+			SQLitePath:   entities[i].SQLitePath,
+			SSLMode:      entities[i].SSLMode,
+			Remark:       entities[i].Remark,
+		}
+		if request.IncludePassword && entities[i].PasswordCipher != "" {
+			password, err := r.box.Decrypt(entities[i].PasswordCipher)
+			if err != nil {
+				return zero, apperrors.Unavailable("连接口令无法解密", err)
+			}
+			item.Password = password
+		}
+		items = append(items, item)
+	}
+	return response.OK(ConnectionDocument{
+		Format:      connectionDocumentFormat,
+		Version:     1,
+		ExportedAt:  time.Now().UTC(),
+		Connections: items,
+	}), nil
+}
 
 func (r *Resource) Import(ctx context.Context, request *ConnectionImportRequest) (response.Response[ConnectionImportResponse], error) {
 	var zero response.Response[ConnectionImportResponse]
@@ -117,6 +177,38 @@ func (r *Resource) Import(ctx context.Context, request *ConnectionImportRequest)
 		items = append(items, *ConnectionEntityToSimple(entity))
 	}
 	return response.OK(ConnectionImportResponse{Created: len(entities), Skipped: skipped, Items: items}), nil
+}
+
+func parseIDs(raw []string) ([]int64, error) {
+	if len(raw) > 500 {
+		return nil, apperrors.Invalid("一次最多导出 500 个连接")
+	}
+	ids := make([]int64, 0, len(raw))
+	for _, item := range raw {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			return nil, apperrors.Invalid("连接主键无效")
+		}
+		id, err := strconv.ParseInt(item, 10, 64)
+		if err != nil || id <= 0 {
+			return nil, apperrors.Invalid("连接主键无效")
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func uniqueIDs(ids []int64) []int64 {
+	seen := map[int64]struct{}{}
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 func uniqueName(base string, used map[string]bool) string {

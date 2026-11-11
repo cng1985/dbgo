@@ -11,6 +11,7 @@ import (
 	"github.com/cng1985/dbgo/internal/modules/console/monitor"
 	"github.com/cng1985/dbgo/internal/modules/console/overview"
 	"github.com/cng1985/dbgo/internal/modules/console/query"
+	"github.com/cng1985/dbgo/internal/modules/console/snippet"
 )
 
 func migrationCleaner(repo *migration.Repository) connection.MigrationCleaner { return repo }
@@ -31,4 +32,5 @@ var Module = fx.Module(
 	overview.Module,
 	llm.Module,
 	monitor.Module,
+	snippet.Module,
 )

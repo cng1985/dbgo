@@ -47,7 +47,7 @@ func RequireScope(ctx context.Context) (Scope, error) {
 }
 
 // Allow 是当前控制台的角色判定。admin 与注册产生的 member 都能使用业务功能。
-// 连接、查询历史、迁移和备份按创建人隔离，模型配置仍然共享。
+// 连接、查询历史、迁移、备份和代码段按创建人隔离，模型配置仍然共享。
 type sessionTokenKey struct{}
 
 func WithSessionToken(ctx context.Context, token string) context.Context {
