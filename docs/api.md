@@ -69,7 +69,7 @@ SQLite 的 `sqlite_path` 可以是相对数据目录的路径。网络库需要�
 | `POST /api/catalog/suggest` | 查询提示。返回驱动、当前模式、模式列表，以及该模式下的表和字段。省略 `schema` 时用连接的默认模式。最多 300 张表、6000 个字段，超出时 `truncated` 为 true。SQL Server 使用 `@p1` 参数 |
 | `POST /api/catalog/objects` | `kind` 为 `table`、`view`、`procedure`、`function`、`routine` 或空。SQLite 的例程 `supported` 为 false |
 | `POST /api/catalog/definition` | 读取表、视图、存储过程或函数的 SQL。表还会返回全部字段，含类型、默认值、自增和注释 |
-| `POST /api/catalog/preview` | 按列、查询或例程主体生成 DDL，不连接目标库。列可以带 `comment`。页面建表时按驱动选择列类型，已有类型不在预设里时仍保留 |
+| `POST /api/catalog/preview` | 按列、查询或例程主体生成 DDL，不连接目标库。列可以带 `comment`。页面建表时按驱动选择列类型，已有类型不在预设里时仍保留。`mode` 为 `alter` 时按 `baseline` 和当前列生成更新表结构的语句，不执行；`changed` 为 true 才表示有语句。列的 `origin` 是修改前的字段名，空字符串表示新增。省略全部 `origin` 时按字段名对应 |
 | `POST /api/catalog/apply` | 长请求。在选定连接上执行最多 300 条对象语句 |
 
 单次查询最多 50 条语句。结果行数默认 100，不超过配置上限。`load_extension`、`xp_cmdshell` 和 `FROM PROGRAM` 会被拒绝。

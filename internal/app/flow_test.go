@@ -329,6 +329,123 @@ func TestConsoleFlow(t *testing.T) {
 	if placeDef.Code != 200 || len(placeDrafts) != 3 || fieldOf(t, placeDef.Data["columns"], "name", "comment") != "地名" {
 		t.Fatalf("编辑定义应带回注释: %#v", placeDef)
 	}
+	seeded := post(t, client, base+"/api/query/execute", map[string]any{
+		"connection_id": connectionID,
+		"read_only":     false,
+		"sql":           "insert into place (name) values ('杭州')",
+	})
+	if seeded.Code != 200 {
+		t.Fatalf("写入示例行失败: %#v", seeded)
+	}
+	sameAlter := post(t, client, base+"/api/catalog/preview", map[string]any{
+		"driver":        "sqlite",
+		"kind":          "table",
+		"mode":          "alter",
+		"name":          "place",
+		"baseline_name": "place",
+		"baseline":      placeDef.Data["columns"],
+		"columns":       placeDef.Data["columns"],
+	})
+	if sameAlter.Code != 200 || sameAlter.Data["changed"] == true || strings.TrimSpace(fmt.Sprint(sameAlter.Data["sql"])) != "" {
+		t.Fatalf("未改动的表不应生成更新语句: %#v", sameAlter)
+	}
+	rejectedAlter := post(t, client, base+"/api/catalog/preview", map[string]any{
+		"driver":        "sqlite",
+		"kind":          "view",
+		"mode":          "alter",
+		"name":          "place",
+		"baseline_name": "place",
+	})
+	if rejectedAlter.Code == 200 {
+		t.Fatalf("视图不能走更新表结构: %#v", rejectedAlter)
+	}
+	placeRaw, err := json.Marshal(placeDef.Data["columns"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var withNote []any
+	if err := json.Unmarshal(placeRaw, &withNote); err != nil {
+		t.Fatal(err)
+	}
+	withNote = append(withNote, map[string]any{"name": "note", "type": "text", "nullable": true})
+	addColumn := post(t, client, base+"/api/catalog/preview", map[string]any{
+		"driver":        "sqlite",
+		"kind":          "table",
+		"mode":          "alter",
+		"name":          "place",
+		"baseline_name": "place",
+		"baseline":      placeDef.Data["columns"],
+		"columns":       withNote,
+	})
+	addSQL, _ := addColumn.Data["sql"].(string)
+	if addColumn.Code != 200 || addColumn.Data["changed"] != true || !strings.Contains(addSQL, `ADD COLUMN "note"`) {
+		t.Fatalf("应生成新增字段语句: %#v", addColumn)
+	}
+	appliedAlter := post(t, client, base+"/api/catalog/apply", map[string]any{
+		"connection_id": connectionID,
+		"sql":           addSQL,
+	})
+	if appliedAlter.Code != 200 {
+		t.Fatalf("执行更新表结构失败: %#v", appliedAlter)
+	}
+	afterAdd := post(t, client, base+"/api/catalog/definition", map[string]any{
+		"connection_id": connectionID,
+		"kind":          "table",
+		"name":          "place",
+	})
+	if afterAdd.Code != 200 || !containsName(afterAdd.Data["columns"], "note") {
+		t.Fatalf("更新后应看到 note: %#v", afterAdd)
+	}
+	var retitled []any
+	retitledRaw, err := json.Marshal(afterAdd.Data["columns"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(retitledRaw, &retitled); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range retitled {
+		row, _ := item.(map[string]any)
+		if row["name"] == "name" {
+			row["comment"] = "城市"
+		}
+	}
+	commentAlter := post(t, client, base+"/api/catalog/preview", map[string]any{
+		"driver":        "sqlite",
+		"kind":          "table",
+		"mode":          "alter",
+		"name":          "place",
+		"baseline_name": "place",
+		"baseline":      afterAdd.Data["columns"],
+		"columns":       retitled,
+	})
+	commentSQL, _ := commentAlter.Data["sql"].(string)
+	if commentAlter.Code != 200 || !strings.Contains(commentSQL, "INSERT INTO") || !strings.Contains(commentSQL, "城市") {
+		t.Fatalf("修改注释应生成重建语句: %#v", commentAlter)
+	}
+	appliedComment := post(t, client, base+"/api/catalog/apply", map[string]any{
+		"connection_id": connectionID,
+		"sql":           commentSQL,
+	})
+	if appliedComment.Code != 200 {
+		t.Fatalf("执行重建失败: %#v", appliedComment)
+	}
+	retitledColumns := post(t, client, base+"/api/catalog/columns", map[string]any{"connection_id": connectionID, "table": "place"})
+	if fieldOf(t, retitledColumns.Data["columns"], "name", "comment") != "城市" {
+		t.Fatalf("重建后应读到新注释: %#v", retitledColumns)
+	}
+	keptRow := post(t, client, base+"/api/query/execute", map[string]any{
+		"connection_id": connectionID,
+		"read_only":     true,
+		"sql":           "select name from place",
+	})
+	keptStatements, _ := keptRow.Data["statements"].([]any)
+	keptFirst, _ := keptStatements[0].(map[string]any)
+	keptRows, _ := keptFirst["rows"].([]any)
+	keptCells, _ := keptRows[0].([]any)
+	if keptRow.Code != 200 || len(keptRows) != 1 || keptCells[0] != "杭州" {
+		t.Fatalf("更新表结构后应保留原数据: %#v", keptRow)
+	}
 	previewTable := post(t, client, base+"/api/catalog/preview", map[string]any{
 		"driver": "sqlite",
 		"kind":   "table",

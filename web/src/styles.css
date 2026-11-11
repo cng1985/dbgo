@@ -170,6 +170,7 @@ td.wrap, .wrap { white-space: normal; }
   background: transparent;
   width: min(720px, calc(100% - 24px));
 }
+.modal.wide { width: min(860px, calc(100% - 24px)); }
 .modal form, .sheet {
   background: #fff;
   border-radius: 4px;
