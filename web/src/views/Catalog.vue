@@ -13,8 +13,10 @@ const indexes = ref([])
 const error = ref('')
 const props = defineProps({
   preferredConnection: { type: String, default: '' },
-  revision: { type: Number, default: 0 }
+  revision: { type: Number, default: 0 },
+  structureRefresh: { type: Object, default: null }
 })
+let structureHold = 0
 
 async function loadConnections() {
   const page = await api('/api/connection/search', { page: 1, page_size: 100, sort: 'name', direction: 'asc' })
@@ -49,17 +51,59 @@ async function loadTables() {
   table.value = tables.value[0]?.name || ''
 }
 
-async function loadDetail() {
-  columns.value = []
-  indexes.value = []
+async function loadDetail(options = {}) {
   if (!connectionID.value || !table.value) {
+    columns.value = []
+    indexes.value = []
     return
+  }
+  if (!options.keep) {
+    columns.value = []
+    indexes.value = []
   }
   const body = { connection_id: connectionID.value, schema: schema.value, table: table.value }
   const columnResult = (await api('/api/catalog/columns', body)).data
   const indexResult = (await api('/api/catalog/indexes', body)).data
   columns.value = columnResult.columns || []
   indexes.value = indexResult.indexes || []
+}
+
+async function refreshStructure(info) {
+  if (!info?.name || !connectionID.value || String(connectionID.value) !== String(info.connectionId || '')) {
+    return
+  }
+  const currentSchema = schema.value || ''
+  const previousSchema = info.previousSchema || ''
+  const nextSchema = info.schema || ''
+  const viewingEdited = !!info.previousName && currentSchema === previousSchema && table.value === info.previousName
+  const schemaInView = currentSchema === previousSchema || currentSchema === nextSchema
+  if (!viewingEdited && !schemaInView) {
+    return
+  }
+  const keepSchema = viewingEdited ? nextSchema : currentSchema
+  const keepTable = viewingEdited ? info.name : table.value
+  structureHold += 1
+  try {
+    const schemaResult = (await api('/api/catalog/schemas', { connection_id: connectionID.value })).data
+    schemas.value = schemaResult.schemas || []
+    const schemaNames = new Set(schemas.value.map((item) => item.name))
+    schema.value = schemaNames.has(keepSchema) || keepSchema === '' ? keepSchema : (schemas.value[0]?.name || '')
+    const tableResult = (await api('/api/catalog/tables', {
+      connection_id: connectionID.value,
+      schema: schema.value
+    })).data
+    tables.value = tableResult.tables || []
+    if (tables.value.some((item) => item.name === keepTable)) {
+      table.value = keepTable
+    } else if (!tables.value.some((item) => item.name === table.value)) {
+      table.value = tables.value[0]?.name || ''
+    }
+    await loadDetail({ keep: true })
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    structureHold -= 1
+  }
 }
 
 watch(connectionID, async () => {
@@ -71,6 +115,9 @@ watch(connectionID, async () => {
   }
 })
 watch(schema, async () => {
+  if (structureHold) {
+    return
+  }
   try {
     await loadTables()
   } catch (err) {
@@ -78,6 +125,9 @@ watch(schema, async () => {
   }
 })
 watch(table, async () => {
+  if (structureHold) {
+    return
+  }
   try {
     await loadDetail()
   } catch (err) {
@@ -96,6 +146,13 @@ watch(() => props.revision, (value, previous) => {
     return
   }
   loadConnections()
+})
+
+watch(() => props.structureRefresh?.seq, (value, previous) => {
+  if (!value || value === previous) {
+    return
+  }
+  refreshStructure(props.structureRefresh)
 })
 
 onMounted(async () => {

@@ -1,6 +1,7 @@
 <script setup>
 import { provide, reactive, ref, watch } from 'vue'
 import { api, connectionTarget } from '../api'
+import { markMatches, nodeMark, planTreeRefresh } from '../treeState.js'
 import Icon from './Icon.vue'
 import TreeNode from './TreeNode.vue'
 
@@ -12,17 +13,22 @@ const emit = defineEmits(['select', 'context', 'open-data', 'open-design', 'relo
 const filter = ref('')
 const filterInput = ref(null)
 const selectedId = ref('')
+const selectedConnectionId = ref('')
 const roots = ref([])
 
-function folder(id, label, children, open = false) {
+function folder(id, label, children, place = {}, open = false) {
   return {
     id,
     kind: 'folder',
+    folder: place.folder || '',
     label,
     meta: String(children.length),
     open,
     loaded: true,
-    children
+    children,
+    connection: place.connection,
+    schema: place.schema || '',
+    table: place.table || ''
   }
 }
 
@@ -57,11 +63,15 @@ function tableNode(connection, schema, table) {
         kind: 'index',
         label: item.name,
         meta: item.unique ? '唯一' : (item.columns || ''),
-        leaf: true
+        leaf: true,
+        connection,
+        schema,
+        table: table.name
       }))
+      const place = { connection, schema, table: table.name }
       return [
-        folder(`cols-${connection.id}-${schema}-${table.name}`, '列', cols),
-        folder(`idxs-${connection.id}-${schema}-${table.name}`, '索引', indexNodes)
+        folder(`cols-${connection.id}-${schema}-${table.name}`, '列', cols, { ...place, folder: 'columns' }),
+        folder(`idxs-${connection.id}-${schema}-${table.name}`, '索引', indexNodes, { ...place, folder: 'indexes' })
       ]
     }
   }
@@ -110,14 +120,15 @@ function schemaNode(connection, name) {
       } catch {
         routines = []
       }
+      const place = { connection, schema: name }
       const children = [
-        folder(`tables-${connection.id}-${name}`, '表', base.map((item) => tableNode(connection, name, item))),
-        folder(`views-${connection.id}-${name}`, '视图', views.map((item) => tableNode(connection, name, item)))
+        folder(`tables-${connection.id}-${name}`, '表', base.map((item) => tableNode(connection, name, item)), { ...place, folder: 'tables' }),
+        folder(`views-${connection.id}-${name}`, '视图', views.map((item) => tableNode(connection, name, item)), { ...place, folder: 'views' })
       ]
       if (routineSupported) {
         children.push(
-          folder(`procs-${connection.id}-${name}`, '存储过程', routines.filter((item) => item.kind === 'procedure').map((item) => routineNode(connection, name, item))),
-          folder(`funcs-${connection.id}-${name}`, '函数', routines.filter((item) => item.kind === 'function').map((item) => routineNode(connection, name, item)))
+          folder(`procs-${connection.id}-${name}`, '存储过程', routines.filter((item) => item.kind === 'procedure').map((item) => routineNode(connection, name, item)), { ...place, folder: 'procedures' }),
+          folder(`funcs-${connection.id}-${name}`, '函数', routines.filter((item) => item.kind === 'function').map((item) => routineNode(connection, name, item)), { ...place, folder: 'functions' })
         )
       }
       return children
@@ -148,6 +159,7 @@ function connectionNode(row, previous) {
           `dbs-${row.id}`,
           '数据库',
           schemas.map((item) => schemaNode(row, item.name)),
+          { folder: 'databases', connection: row },
           true
         )
       ]
@@ -159,11 +171,10 @@ watch(() => props.connections, (list) => {
   const previous = new Map(roots.value.map((node) => [node.connection?.id, node]))
   const seen = new Set((list || []).map((row) => row.id))
   roots.value = (list || []).map((row) => connectionNode(row, previous.get(row.id)))
-  if (selectedId.value && ![...walk(roots.value)].some((node) => node.id === selectedId.value)) {
+  const alive = new Set([...seen].map((id) => String(id)))
+  if (!alive.size || (selectedConnectionId.value && !alive.has(selectedConnectionId.value))) {
     selectedId.value = ''
-  }
-  if (!seen.size) {
-    selectedId.value = ''
+    selectedConnectionId.value = ''
   }
 }, { immediate: true })
 
@@ -203,6 +214,9 @@ async function toggle(node) {
 
 function select(node) {
   selectedId.value = node.id
+  if (node.connection?.id != null && node.connection.id !== '') {
+    selectedConnectionId.value = String(node.connection.id)
+  }
   emit('select', node)
 }
 
@@ -224,22 +238,116 @@ function context(event, node) {
   emit('context', { x: event.clientX, y: event.clientY, node })
 }
 
-async function refresh(node) {
-  const target = node && node.load ? node : null
-  if (!target) {
-    emit('reload')
-    const opened = roots.value.filter((item) => item.open)
-    for (const item of opened) {
-      item.loaded = false
-      item.children = []
-      await ensure(item)
+function applyOpen(nodes, plan) {
+  for (const child of nodes || []) {
+    if (child.leaf) {
+      continue
     }
-    return
+    child.open = !!plan?.open?.some((mark) => markMatches(child, mark))
+    if (!child.open) {
+      continue
+    }
+    if (child.load) {
+      child.loading = true
+    }
+    if (child.children?.length) {
+      applyOpen(child.children, plan)
+    }
   }
-  target.loaded = false
-  target.children = []
-  target.open = true
-  await ensure(target)
+}
+
+async function reloadNode(node, plan) {
+  if (!node?.load) {
+    return true
+  }
+  node.loading = true
+  node.error = ''
+  try {
+    const children = await node.load()
+    applyOpen(children, plan)
+    node.children = children
+    node.loaded = true
+    return true
+  } catch (err) {
+    node.error = err.message
+    return false
+  } finally {
+    node.loading = false
+  }
+}
+
+function findMarked(mark) {
+  if (!mark) {
+    return null
+  }
+  for (const item of walk(roots.value)) {
+    if (markMatches(item, mark)) {
+      return item
+    }
+  }
+  return null
+}
+
+async function restore(nodes, plan) {
+  const pending = []
+  for (const node of nodes || []) {
+    if (node.leaf) {
+      continue
+    }
+    const shouldOpen = plan.open.some((mark) => markMatches(node, mark))
+    if (shouldOpen) {
+      node.open = true
+      pending.push(node)
+      continue
+    }
+    if (node.open) {
+      node.open = false
+    }
+    if (node.load && node.loaded) {
+      node.loaded = false
+    }
+  }
+  for (const node of pending) {
+    if (node.load) {
+      const ok = await reloadNode(node, plan)
+      if (!ok) {
+        continue
+      }
+    }
+    await restore(node.children, plan)
+  }
+}
+
+async function refresh(node, change) {
+  const open = []
+  let selected = null
+  for (const item of walk(roots.value)) {
+    if (item.open) {
+      open.push(nodeMark(item))
+    }
+    if (item.id === selectedId.value) {
+      selected = nodeMark(item)
+    }
+  }
+  const plan = planTreeRefresh(open, selected, change)
+  const target = node && node.load ? node : null
+  if (target) {
+    if (!plan.open.some((mark) => markMatches(target, mark))) {
+      plan.open.push(nodeMark(target))
+    }
+    await restore([target], plan)
+  } else {
+    emit('reload')
+    await restore(roots.value, plan)
+  }
+  const selectedNode = findMarked(plan.selected)
+  if (selectedNode) {
+    selectedId.value = selectedNode.id
+    if (selectedNode.connection?.id != null && selectedNode.connection.id !== '') {
+      selectedConnectionId.value = String(selectedNode.connection.id)
+    }
+  }
+  return selectedNode
 }
 
 function collapseAll() {

@@ -54,6 +54,7 @@ const connections = ref([])
 const tabs = ref([])
 const activeId = ref('')
 const revision = ref(0)
+const structureRefresh = ref(null)
 const selection = ref(null)
 const runNote = ref('')
 const openMenu = ref('')
@@ -632,6 +633,60 @@ function editConnection(row) {
   })
 }
 
+function syncObjectTabs(info) {
+  const connectionId = String(info.connectionId || '')
+  const previousSchema = info.previousSchema || ''
+  const nextSchema = info.schema || ''
+  const previousName = info.previousName || ''
+  const nextName = info.name || ''
+  if (!connectionId || !previousName || !nextName) {
+    return
+  }
+  const removed = []
+  for (const tab of tabs.value) {
+    if (tab.kind !== 'object' || String(tab.connectionId) !== connectionId) {
+      continue
+    }
+    const onOld = (tab.schema || '') === previousSchema && tab.table === previousName
+    const onNew = (tab.schema || '') === nextSchema && tab.table === nextName
+    if (!onOld && !onNew) {
+      continue
+    }
+    if (onOld && (tab.table !== nextName || (tab.schema || '') !== nextSchema)) {
+      const nextId = `object-${connectionId}-${nextSchema}-${nextName}`
+      const clash = tabs.value.find((item) => item !== tab && item.id === nextId)
+      if (activeId.value === tab.id) {
+        activeId.value = clash ? clash.id : nextId
+      }
+      if (clash) {
+        clash.stamp = (clash.stamp || 0) + 1
+        removed.push(tab)
+        continue
+      }
+      tab.id = nextId
+      tab.schema = nextSchema
+      tab.table = nextName
+      tab.title = nextName
+    }
+    tab.stamp = (tab.stamp || 0) + 1
+  }
+  if (removed.length) {
+    tabs.value = tabs.value.filter((item) => !removed.includes(item))
+  }
+}
+
+async function onApplied(info) {
+  const node = await navigatorRef.value?.refresh(undefined, info)
+  if (node) {
+    selection.value = node
+  }
+  if (!info?.name) {
+    return
+  }
+  structureRefresh.value = { ...info, seq: Date.now() }
+  syncObjectTabs(info)
+}
+
 async function reloadConnections() {
   const page = await api('/api/connection/search', { page: 1, page_size: 100, sort: 'name', direction: 'asc' })
   connections.value = page.data || []
@@ -898,15 +953,16 @@ onBeforeUnmount(() => {
               :schema="tab.schema"
               :table="tab.table"
               :driver="tab.driver"
+              :stamp="tab.stamp || 0"
               @query="queryObject(tab)"
             />
             <div v-else class="tool-scroll">
               <Overview v-if="tab.tool === 'overview'" />
               <Connections v-else-if="tab.tool === 'connections'" :command="tab.command" :revision="revision" @changed="reloadConnections" />
-              <Catalog v-else-if="tab.tool === 'catalog'" :preferred-connection="tab.preferredConnection" :revision="revision" />
+              <Catalog v-else-if="tab.tool === 'catalog'" :preferred-connection="tab.preferredConnection" :revision="revision" :structure-refresh="structureRefresh" />
               <Migrations v-else-if="tab.tool === 'migrations'" :preferred-connection="tab.preferredConnection" :revision="revision" />
               <Backups v-else-if="tab.tool === 'backups'" :preferred-connection="tab.preferredConnection" :revision="revision" />
-              <Designer v-else-if="tab.tool === 'designer'" :command="tab.command" :preferred-connection="tab.preferredConnection" :connections="connections" @applied="navigatorRef?.refresh()" />
+              <Designer v-else-if="tab.tool === 'designer'" :command="tab.command" :preferred-connection="tab.preferredConnection" :connections="connections" @applied="onApplied" />
               <Monitor v-else-if="tab.tool === 'monitor'" :preferred-connection="tab.preferredConnection" :connections="connections" :revision="revision" />
               <Models v-else-if="tab.tool === 'models'" />
               <Snippets v-else-if="tab.tool === 'snippets'" @insert="insertSnippet" />
