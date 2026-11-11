@@ -23,6 +23,7 @@ const router = createRouter({
         { path: 'designer', component: outlet, meta: { title: '对象设计', tool: 'designer' } },
         { path: 'monitor', component: outlet, meta: { title: '性能', tool: 'monitor' } },
         { path: 'models', component: outlet, meta: { title: '大模型', tool: 'models' } },
+        { path: 'snippets', component: outlet, meta: { title: '代码段', tool: 'snippets' } },
         { path: 'account', component: outlet, meta: { title: '个人中心', tool: 'account' } }
       ]
     }

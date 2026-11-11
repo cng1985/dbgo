@@ -214,7 +214,7 @@ func safeType(typeName string) string {
 		return "text"
 	}
 	for _, ch := range typeName {
-		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == ' ' || ch == '(' || ch == ')' || ch == ',' {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == ' ' || ch == '(' || ch == ')' || ch == ',' || ch == '\'' {
 			continue
 		}
 		return "text"

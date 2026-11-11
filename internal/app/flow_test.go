@@ -163,6 +163,19 @@ func TestConsoleFlow(t *testing.T) {
 	if columns.Code != 200 || !containsName(columns.Data["columns"], "population") {
 		t.Fatalf("应看到字段 population: %#v", columns)
 	}
+	cityColumns, _ := columns.Data["columns"].([]any)
+	if len(cityColumns) != 3 {
+		t.Fatalf("city 应返回全部字段: %#v", columns.Data["columns"])
+	}
+	cityDef := post(t, client, base+"/api/catalog/definition", map[string]any{
+		"connection_id": connectionID,
+		"kind":          "table",
+		"name":          "city",
+	})
+	cityDrafts, _ := cityDef.Data["columns"].([]any)
+	if cityDef.Code != 200 || len(cityDrafts) != 3 || !containsName(cityDef.Data["columns"], "population") {
+		t.Fatalf("编辑表定义时应带回全部字段: %#v", cityDef)
+	}
 	suggest := post(t, client, base+"/api/catalog/suggest", map[string]any{"connection_id": connectionID})
 	if suggest.Code != 200 || suggest.Data["driver"] != "sqlite" || suggest.Data["schema"] != "main" || !containsName(suggest.Data["schemas"], "main") || !suggestHasColumn(suggest.Data, "city", "population") {
 		t.Fatalf("结构提示应包含 city.population: %#v", suggest)
@@ -287,11 +300,116 @@ func TestConsoleFlow(t *testing.T) {
 		t.Fatalf("性能快照失败: %#v", snapshot)
 	}
 
-	blockedExport := post(t, client, base+"/api/connection/export", map[string]any{
-		"ids": []string{connectionID},
+	placed := post(t, client, base+"/api/query/execute", map[string]any{
+		"connection_id": connectionID,
+		"read_only":     false,
+		"sql": `create table place (
+			id integer primary key autoincrement,
+			name text not null /* 地名 */,
+			code text not null default 'CN'
+		)`,
 	})
-	if blockedExport.Code != 404 {
-		t.Fatalf("连接不能导出: %#v", blockedExport)
+	if placed.Code != 200 {
+		t.Fatalf("创建带注释的表失败: %#v", placed)
+	}
+	placeColumns := post(t, client, base+"/api/catalog/columns", map[string]any{"connection_id": connectionID, "table": "place"})
+	placeList, _ := placeColumns.Data["columns"].([]any)
+	if placeColumns.Code != 200 || len(placeList) != 3 || fieldOf(t, placeColumns.Data["columns"], "name", "comment") != "地名" {
+		t.Fatalf("字段应包含注释: %#v", placeColumns)
+	}
+	if fieldOf(t, placeColumns.Data["columns"], "id", "identity") != true {
+		t.Fatalf("应识别自增主键: %#v", placeColumns.Data["columns"])
+	}
+	placeDef := post(t, client, base+"/api/catalog/definition", map[string]any{
+		"connection_id": connectionID,
+		"kind":          "table",
+		"name":          "place",
+	})
+	placeDrafts, _ := placeDef.Data["columns"].([]any)
+	if placeDef.Code != 200 || len(placeDrafts) != 3 || fieldOf(t, placeDef.Data["columns"], "name", "comment") != "地名" {
+		t.Fatalf("编辑定义应带回注释: %#v", placeDef)
+	}
+	previewTable := post(t, client, base+"/api/catalog/preview", map[string]any{
+		"driver": "sqlite",
+		"kind":   "table",
+		"name":   "place2",
+		"columns": []map[string]any{
+			{"name": "id", "type": "integer", "primary": true, "identity": true, "comment": "主键"},
+			{"name": "title", "type": "text", "nullable": false, "comment": "标题"},
+		},
+	})
+	tableSQL, _ := previewTable.Data["sql"].(string)
+	if previewTable.Code != 200 || !strings.Contains(tableSQL, "主键") || !strings.Contains(tableSQL, "标题") {
+		t.Fatalf("生成 SQL 应包含注释: %#v", previewTable)
+	}
+	appliedTable := post(t, client, base+"/api/catalog/apply", map[string]any{
+		"connection_id": connectionID,
+		"sql":           tableSQL,
+	})
+	if appliedTable.Code != 200 {
+		t.Fatalf("执行带注释的建表失败: %#v", appliedTable)
+	}
+	reloaded := post(t, client, base+"/api/catalog/columns", map[string]any{"connection_id": connectionID, "table": "place2"})
+	reloadedColumns, _ := reloaded.Data["columns"].([]any)
+	if reloaded.Code != 200 || len(reloadedColumns) != 2 || fieldOf(t, reloaded.Data["columns"], "title", "comment") != "标题" {
+		t.Fatalf("执行后应读回全部字段和注释: %#v", reloaded)
+	}
+
+	secret := post(t, client, base+"/api/connection/create", map[string]any{
+		"name":        "口令库",
+		"driver":      "sqlite",
+		"sqlite_path": "secret.db",
+		"password":    "db-secret",
+	})
+	if secret.Code != 200 {
+		t.Fatalf("创建带口令的连接失败: %#v", secret)
+	}
+	secretID, _ := secret.Data["id"].(string)
+	exported := post(t, client, base+"/api/connection/export", map[string]any{
+		"ids":              []string{secretID},
+		"include_password": false,
+	})
+	exportedItems, _ := exported.Data["connections"].([]any)
+	if exported.Code != 200 || exported.Data["format"] != "dbgo-connections" || len(exportedItems) != 1 {
+		t.Fatalf("应能导出连接: %#v", exported)
+	}
+	exportedFirst, _ := exportedItems[0].(map[string]any)
+	if exportedFirst["name"] != "口令库" || exportedFirst["password"] != nil || exportedFirst["sqlite_path"] == "" {
+		t.Fatalf("默认导出不应包含口令: %#v", exportedFirst)
+	}
+	withPassword := post(t, client, base+"/api/connection/export", map[string]any{
+		"ids":              []string{secretID},
+		"include_password": true,
+	})
+	withItems, _ := withPassword.Data["connections"].([]any)
+	withFirst, _ := withItems[0].(map[string]any)
+	if withPassword.Code != 200 || withFirst["password"] != "db-secret" {
+		t.Fatalf("勾选后应导出连接口令: %#v", withPassword.Data)
+	}
+
+	createdSnippet := post(t, client, base+"/api/snippet/create", map[string]any{
+		"name":        "查询城市",
+		"description": "按名称筛选",
+		"driver":      "sqlite",
+		"body":        "select id, name from city where name = '杭州'",
+	})
+	if createdSnippet.Code != 200 || createdSnippet.Data["body"] == "" {
+		t.Fatalf("创建代码段失败: %#v", createdSnippet)
+	}
+	snippetID, _ := createdSnippet.Data["id"].(string)
+	exportedSnippet := post(t, client, base+"/api/snippet/export", map[string]any{
+		"ids": []string{snippetID},
+	})
+	snippetItems, _ := exportedSnippet.Data["snippets"].([]any)
+	if exportedSnippet.Code != 200 || exportedSnippet.Data["format"] != "dbgo-snippets" || len(snippetItems) != 1 {
+		t.Fatalf("应能导出代码段: %#v", exportedSnippet)
+	}
+	importedSnippet := post(t, client, base+"/api/snippet/import", map[string]any{
+		"document":    exportedSnippet.Data,
+		"on_conflict": "rename",
+	})
+	if importedSnippet.Code != 200 || importedSnippet.Data["created"] != float64(1) {
+		t.Fatalf("重名代码段导入应改名后创建: %#v", importedSnippet)
 	}
 	imported := post(t, client, base+"/api/connection/import", map[string]any{
 		"document": map[string]any{
@@ -336,6 +454,14 @@ func TestConsoleFlow(t *testing.T) {
 	deniedOne := post(t, member, base+"/api/connection/one", map[string]any{"id": connectionID})
 	if deniedOne.Code != 404 {
 		t.Fatalf("不能读取别人的连接: %#v", deniedOne)
+	}
+	hiddenSnippets := post(t, member, base+"/api/snippet/search", map[string]any{"page": 1, "page_size": 50})
+	if hiddenSnippets.Raw["total"] != float64(0) {
+		t.Fatalf("注册用户不应看到别人的代码段: %#v", hiddenSnippets.Raw)
+	}
+	deniedSnippet := post(t, member, base+"/api/snippet/one", map[string]any{"id": snippetID})
+	if deniedSnippet.Code != 404 {
+		t.Fatalf("不能读取别人的代码段: %#v", deniedSnippet)
 	}
 	deniedSQL := post(t, member, base+"/api/query/execute", map[string]any{"connection_id": connectionID, "sql": "select 1"})
 	if deniedSQL.Code != 404 {
@@ -541,6 +667,19 @@ func suggestHasColumn(data map[string]any, table, column string) bool {
 		}
 	}
 	return false
+}
+
+func fieldOf(t *testing.T, value any, name, field string) any {
+	t.Helper()
+	items, _ := value.([]any)
+	for _, item := range items {
+		row, _ := item.(map[string]any)
+		if row["name"] == name {
+			return row[field]
+		}
+	}
+	t.Fatalf("缺少字段 %s: %#v", name, value)
+	return nil
 }
 
 func containsName(value any, name string) bool {

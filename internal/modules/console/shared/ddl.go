@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/cng1985/dbgo/internal/platform/sqlscript"
 )
@@ -15,6 +16,7 @@ type ColumnDraft struct {
 	Primary  bool
 	Identity bool
 	Default  string
+	Comment  string
 }
 
 type ParamDraft struct {
@@ -58,8 +60,8 @@ func RenderObject(draft ObjectDraft) (string, error) {
 }
 
 func renderTable(draft ObjectDraft) (string, error) {
-	if len(draft.Columns) == 0 || len(draft.Columns) > 80 {
-		return "", fmt.Errorf("表至少要有一列，且不超过 80 列")
+	if len(draft.Columns) == 0 || len(draft.Columns) > 256 {
+		return "", fmt.Errorf("表至少要有一列，且不超过 256 列")
 	}
 	name, err := Qualified(draft.Driver, draft.Schema, draft.Name)
 	if err != nil {
@@ -108,6 +110,14 @@ func renderTable(draft ObjectDraft) (string, error) {
 	builder.WriteString(" (\n  ")
 	builder.WriteString(strings.Join(lines, ",\n  "))
 	builder.WriteString("\n)")
+	comments, err := columnComments(draft)
+	if err != nil {
+		return "", err
+	}
+	if comments != "" {
+		builder.WriteString(";\n")
+		builder.WriteString(comments)
+	}
 	return builder.String(), nil
 }
 
@@ -153,7 +163,89 @@ func columnLine(driver string, column ColumnDraft, singlePK bool) (string, error
 	if singlePK && column.Primary && !inlinePK {
 		builder.WriteString(" PRIMARY KEY")
 	}
+	comment, err := normalizeComment(column.Comment)
+	if err != nil {
+		return "", err
+	}
+	switch driver {
+	case "mysql":
+		if comment != "" {
+			builder.WriteString(" COMMENT ")
+			builder.WriteString(quoteLiteral(driver, comment))
+		}
+	case "sqlite":
+		if comment != "" {
+			builder.WriteString(" /* ")
+			builder.WriteString(sqliteCommentText(comment))
+			builder.WriteString(" */")
+		}
+	}
 	return builder.String(), nil
+}
+
+func columnComments(draft ObjectDraft) (string, error) {
+	switch draft.Driver {
+	case "postgres", "sqlserver":
+	default:
+		return "", nil
+	}
+	lines := []string{}
+	schema := draft.Schema
+	if draft.Driver == "sqlserver" && schema == "" {
+		schema = "dbo"
+	}
+	for _, column := range draft.Columns {
+		comment, err := normalizeComment(column.Comment)
+		if err != nil {
+			return "", err
+		}
+		if comment == "" {
+			continue
+		}
+		if _, err := QuoteIdent(draft.Driver, column.Name); err != nil {
+			return "", fmt.Errorf("列名无效")
+		}
+		switch draft.Driver {
+		case "postgres":
+			qualified, err := Qualified(draft.Driver, draft.Schema, draft.Name)
+			if err != nil {
+				return "", fmt.Errorf("表名无效")
+			}
+			quoted, err := QuoteIdent(draft.Driver, column.Name)
+			if err != nil {
+				return "", fmt.Errorf("列名无效")
+			}
+			lines = append(lines, "COMMENT ON COLUMN "+qualified+"."+quoted+" IS "+quoteLiteral(draft.Driver, comment))
+		default:
+			lines = append(lines, "EXEC sp_addextendedproperty @name = N'MS_Description', @value = "+quoteLiteral(draft.Driver, comment)+
+				", @level0type = N'SCHEMA', @level0name = "+quoteLiteral(draft.Driver, schema)+
+				", @level1type = N'TABLE', @level1name = "+quoteLiteral(draft.Driver, draft.Name)+
+				", @level2type = N'COLUMN', @level2name = "+quoteLiteral(draft.Driver, column.Name))
+		}
+	}
+	return strings.Join(lines, ";\n"), nil
+}
+
+func normalizeComment(comment string) (string, error) {
+	comment = strings.TrimSpace(comment)
+	if comment == "" {
+		return "", nil
+	}
+	if strings.ContainsRune(comment, 0) || !utf8.ValidString(comment) || utf8.RuneCountInString(comment) > 1000 {
+		return "", fmt.Errorf("注释过长或包含无效字符")
+	}
+	return comment, nil
+}
+
+func quoteLiteral(driver, value string) string {
+	if driver == "mysql" {
+		value = strings.ReplaceAll(value, `\`, `\\`)
+	}
+	value = strings.ReplaceAll(value, "'", "''")
+	if driver == "sqlserver" {
+		return "N'" + value + "'"
+	}
+	return "'" + value + "'"
 }
 
 func renderView(draft ObjectDraft) (string, error) {
@@ -432,11 +524,11 @@ func singleStatement(sqlText string) (string, error) {
 
 func checkedType(value string) (string, error) {
 	value = strings.TrimSpace(value)
-	if value == "" || len([]rune(value)) > 80 {
+	if value == "" || len([]rune(value)) > 1000 {
 		return "", fmt.Errorf("类型无效")
 	}
 	for _, ch := range value {
-		if unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == ' ' || ch == '(' || ch == ')' || ch == ',' || ch == '_' || ch == '.' {
+		if unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == ' ' || ch == '(' || ch == ')' || ch == ',' || ch == '_' || ch == '.' || ch == '\'' {
 			continue
 		}
 		return "", fmt.Errorf("类型包含不允许的字符")
@@ -448,6 +540,12 @@ func formatDefault(driver, value string) (string, bool, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return "", false, nil
+	}
+	if strings.ContainsAny(value, ";\n\r") || strings.Contains(value, "--") || strings.Contains(value, "/*") {
+		return "", false, fmt.Errorf("默认值包含不允许的字符")
+	}
+	if isRawDefault(value) {
+		return value, true, nil
 	}
 	upper := strings.ToUpper(value)
 	switch upper {
@@ -465,14 +563,24 @@ func formatDefault(driver, value string) (string, bool, error) {
 	if isNumber(value) {
 		return value, true, nil
 	}
-	if strings.ContainsAny(value, ";\n\r") {
-		return "", false, fmt.Errorf("默认值包含不允许的字符")
-	}
 	if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") && len(value) >= 2 {
 		inner := strings.ReplaceAll(value[1:len(value)-1], "''", "'")
 		return "'" + strings.ReplaceAll(inner, "'", "''") + "'", true, nil
 	}
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'", true, nil
+}
+
+func isRawDefault(value string) bool {
+	if !strings.Contains(value, "(") && !strings.Contains(value, "::") {
+		return false
+	}
+	for _, ch := range value {
+		if unicode.IsLetter(ch) || unicode.IsDigit(ch) || strings.ContainsRune(" _'(),.:-+*/[]", ch) {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func isNumber(value string) bool {

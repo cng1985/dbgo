@@ -8,7 +8,7 @@ internal/app
 internal/platform
   config database domain response errors middleware routing server logging auth secret sqlscript buildinfo
 internal/modules/console
-  connection query catalog migration backup overview llm monitor shared
+  connection query catalog migration backup overview llm monitor snippet shared
 web
 migrations
 configs
@@ -24,7 +24,7 @@ configs
 
 ## 两个数据库
 
-应用库保存用户、会话、连接、查询历史、迁移定义和备份记录。目标库是用户登记的 MySQL、PostgreSQL、SQL Server 或 SQLite。目标库用 `database/sql` 打开，每次操作新建最多 2 个连接的小池，用完关闭，不缓存。
+应用库保存用户、会话、连接、查询历史、迁移定义、备份记录和代码段。目标库是用户登记的 MySQL、PostgreSQL、SQL Server 或 SQLite。目标库用 `database/sql` 打开，每次操作新建最多 2 个连接的小池，用完关闭，不缓存。
 
 应用库使用 GORM，并设置 `SkipDefaultTransaction: true`。单条写入不再套一层默认事务；跨步骤的更新、删除和迁移清理显式调用 `Transaction`。SQLite 应用库的最大连接数是 1。
 
@@ -36,10 +36,10 @@ configs
 
 会话放在 HttpOnly Cookie `dbgo_session`。所有 `/api` 请求还要带 `X-DBGo-Request: 1`，并在提供 Origin 时与 Host 一致。登录口令使用 bcrypt。会话表只保存令牌的 SHA256。
 
-上下文里的 Scope 含操作者、请求号和角色。`admin` 与注册产生的 `member` 都能使用控制台。连接按 `created_by` 隔离：列表、打开、修改、删除、导入，以及这条连接上的查询、迁移和备份，都只对创建人可见。连接不能导出。两人可以使用相同的连接名称。模型配置仍然共享。
+上下文里的 Scope 含操作者、请求号和角色。`admin` 与注册产生的 `member` 都能使用控制台。连接按 `created_by` 隔离：列表、打开、修改、删除、导入、导出，以及这条连接上的查询、迁移和备份，都只对创建人可见。导出默认不包含口令，只有请求显式要求时才解密写入文件。代码段同样只属于创建人。两人可以使用相同的连接名称和代码段名称。模型配置仍然共享。
 
 连接口令用 AES-GCM 加密。密钥来自 `APP_AUTH_SECRET`，否则使用数据目录里自动生成的 `auth.key`。
 
 ## 前端
 
-`web/` 是 Vue 3、JavaScript、Vite 和 Pinia。登录或注册后是数据库工作台：菜单和工具栏、左侧对象树、多标签 SQL 编辑器、对象设计、性能、模型配置和个人中心。构建结果放进 `web/dist`，由 `web/embed.go` 嵌进二进制。页面不内联脚本和样式，以匹配 `default-src 'self'`。查询编辑器的高亮和补全也写在页面样式里，不在运行时注入 `<style>`。接口封装区分普通响应和分页响应，主键保持字符串。
+`web/` 是 Vue 3、JavaScript、Vite 和 Pinia。登录或注册后是数据库工作台：菜单和工具栏、左侧对象树、多标签 SQL 编辑器、对象设计、代码段、性能、模型配置和个人中心。构建结果放进 `web/dist`，由 `web/embed.go` 嵌进二进制。页面不内联脚本和样式，以匹配 `default-src 'self'`。查询编辑器的高亮和补全也写在页面样式里，不在运行时注入 `<style>`。接口封装区分普通响应和分页响应，主键保持字符串。

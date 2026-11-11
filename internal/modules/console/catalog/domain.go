@@ -24,7 +24,9 @@ type CatalogColumn struct {
 	Nullable bool   `json:"nullable"`
 	Default  string `json:"default,omitempty"`
 	Primary  bool   `json:"primary"`
+	Identity bool   `json:"identity"`
 	Extra    string `json:"extra,omitempty"`
+	Comment  string `json:"comment,omitempty"`
 }
 
 type CatalogIndex struct {
@@ -68,13 +70,14 @@ type CatalogObjectsResponse struct {
 }
 
 type CatalogDefinitionResponse struct {
-	Driver   string `json:"driver"`
-	Schema   string `json:"schema"`
-	Name     string `json:"name"`
-	Kind     string `json:"kind"`
-	SQL      string `json:"sql"`
-	Editable bool   `json:"editable"`
-	Note     string `json:"note,omitempty"`
+	Driver   string               `json:"driver"`
+	Schema   string               `json:"schema"`
+	Name     string               `json:"name"`
+	Kind     string               `json:"kind"`
+	SQL      string               `json:"sql"`
+	Editable bool                 `json:"editable"`
+	Note     string               `json:"note,omitempty"`
+	Columns  []CatalogColumnDraft `json:"columns,omitempty"`
 }
 
 type CatalogColumnDraft struct {
@@ -84,6 +87,7 @@ type CatalogColumnDraft struct {
 	Primary  bool   `json:"primary"`
 	Identity bool   `json:"identity"`
 	Default  string `json:"default"`
+	Comment  string `json:"comment"`
 }
 
 type CatalogParamDraft struct {

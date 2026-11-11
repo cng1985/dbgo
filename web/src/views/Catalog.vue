@@ -137,15 +137,16 @@ onMounted(async () => {
           <h2>字段</h2>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>名称</th><th>类型</th><th>可空</th><th>主键</th><th>默认值</th></tr></thead>
+              <thead><tr><th>名称</th><th>类型</th><th>可空</th><th>主键</th><th>默认值</th><th>注释</th></tr></thead>
               <tbody>
-                <tr v-if="!columns.length"><td colspan="5" class="empty">选择一张表。</td></tr>
+                <tr v-if="!columns.length"><td colspan="6" class="empty">选择一张表。</td></tr>
                 <tr v-for="item in columns" :key="item.name">
                   <td>{{ item.name }}</td>
                   <td>{{ item.type }}</td>
                   <td>{{ item.nullable ? '是' : '否' }}</td>
                   <td>{{ item.primary ? '是' : '' }}</td>
                   <td>{{ item.default || '' }}</td>
+                  <td>{{ item.comment || '' }}</td>
                 </tr>
               </tbody>
             </table>

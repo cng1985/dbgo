@@ -65,7 +65,10 @@ func (r *Resource) Columns(ctx context.Context, search *CatalogSearch) (response
 	}
 	columns := make([]CatalogColumn, 0, len(items))
 	for _, item := range items {
-		columns = append(columns, CatalogColumn{Name: item.Name, Type: item.Type, Nullable: item.Nullable, Default: item.Default, Primary: item.Primary, Extra: item.Extra})
+		columns = append(columns, CatalogColumn{
+			Name: item.Name, Type: item.Type, Nullable: item.Nullable, Default: item.Default,
+			Primary: item.Primary, Identity: item.Identity, Extra: item.Extra, Comment: item.Comment,
+		})
 	}
 	return response.OK(CatalogResponse{Driver: target.Driver, Schemas: []CatalogSchema{}, Tables: []CatalogTable{}, Columns: columns, Indexes: []CatalogIndex{}}), nil
 }

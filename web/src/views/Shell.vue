@@ -16,6 +16,7 @@ import Backups from './Backups.vue'
 import Designer from './Designer.vue'
 import Monitor from './Monitor.vue'
 import Models from './Models.vue'
+import Snippets from './Snippets.vue'
 import Account from './Account.vue'
 
 const storageKey = 'dbgo-workbench-v1'
@@ -28,6 +29,7 @@ const tools = {
   designer: { title: '对象设计', path: '/designer' },
   monitor: { title: '性能', path: '/monitor' },
   models: { title: '大模型', path: '/models' },
+  snippets: { title: '代码段', path: '/snippets' },
   account: { title: '个人中心', path: '/account' }
 }
 const pathTool = {
@@ -41,6 +43,7 @@ const pathTool = {
   '/designer': 'designer',
   '/monitor': 'monitor',
   '/models': 'models',
+  '/snippets': 'snippets',
   '/account': 'account'
 }
 
@@ -106,6 +109,8 @@ const menus = computed(() => [
       { label: '新建 SQL 脚本', run: () => newScript() },
       { label: '新建连接', run: createConnection },
       { label: '导入连接', run: () => openTool('connections', { command: { type: 'import', seq: Date.now() } }) },
+      { label: '导出连接', run: () => openTool('connections', { command: { type: 'export', seq: Date.now() } }) },
+      { label: '代码段', run: () => openTool('snippets') },
       { type: 'sep' },
       { label: '关闭当前标签', disabled: !activeTab.value, run: () => activeTab.value && closeTab(activeTab.value) },
       { type: 'sep' },
@@ -146,6 +151,7 @@ const menus = computed(() => [
       { label: '解释', disabled: !sqlActive.value, run: () => editorAction('explain') },
       { label: 'AI 优化', disabled: !sqlActive.value, run: () => editorAction('optimize') },
       { label: '新建脚本', run: () => newScript() },
+      { label: '代码段', run: () => openTool('snippets') },
       { label: sqlActive.value && activeTab.value.readOnly ? '取消只读' : '设为只读', disabled: !sqlActive.value, run: toggleReadOnly },
       { label: showResults.value ? '隐藏结果' : '显示结果', run: () => { showResults.value = !showResults.value } }
     ]
@@ -162,6 +168,7 @@ const menus = computed(() => [
       { label: '新建函数', run: () => design('function') },
       { label: '性能监控', run: () => openTool('monitor', { connectionId: statusConnection.value?.id || '' }) },
       { label: '大模型', run: () => openTool('models') },
+      { label: '代码段', run: () => openTool('snippets') },
       { label: '迁移', run: () => openTool('migrations') },
       { label: '备份', run: () => openTool('backups') },
       { type: 'sep' },
@@ -226,6 +233,7 @@ const contextItems = computed(() => {
       { label: '备份', run: () => openTool('backups', { connectionId: node.connection.id }) },
       { type: 'sep' },
       { label: '编辑连接', run: () => editConnection(node.connection) },
+      { label: '导出连接', run: () => openTool('connections', { command: { type: 'export', id: node.connection.id, seq: Date.now() } }) },
       { label: '删除连接', danger: true, run: () => removeConnection(node.connection) }
     )
   }
@@ -476,7 +484,7 @@ function tabIcon(tab) {
   if (tab.tool === 'backups') return 'backup'
   if (tab.tool === 'catalog' || tab.tool === 'designer') return 'catalog'
   if (tab.tool === 'monitor') return 'overview'
-  if (tab.tool === 'models') return 'sql'
+  if (tab.tool === 'models' || tab.tool === 'snippets') return 'sql'
   if (tab.tool === 'account') return 'overview'
   return 'overview'
 }
@@ -538,6 +546,18 @@ function queryObject(tab) {
     readOnly: true,
     autorun: 1
   })
+}
+
+function insertSnippet(body) {
+  if (!body) {
+    return
+  }
+  const tab = activeTab.value?.kind === 'sql' ? activeTab.value : newScript({ skipRoute: true })
+  tab.sql = tab.sql ? `${tab.sql.replace(/\s*$/, '')}\n${body}` : body
+  activeId.value = tab.id
+  if (route.path !== '/' && route.path !== '/query') {
+    go('/query')
+  }
 }
 
 function fillSelect(node) {
@@ -811,6 +831,7 @@ onBeforeUnmount(() => {
       <button class="icon-btn" type="button" title="对象设计" @click="design('table')"><Icon name="add" /></button>
       <button class="icon-btn" type="button" title="性能" @click="openTool('monitor', { connectionId: statusConnection?.id || '' })"><Icon name="overview" /></button>
       <button class="icon-btn" type="button" title="大模型" @click="openTool('models')"><Icon name="sql" /></button>
+      <button class="icon-btn" type="button" title="代码段" @click="openTool('snippets')"><Icon name="sql" /></button>
       <span class="tb-sep"></span>
       <button class="icon-btn" type="button" :title="navOpen ? '隐藏数据库导航' : '显示数据库导航'" @click="navOpen = !navOpen"><Icon name="nav" /></button>
     </div>
@@ -869,6 +890,7 @@ onBeforeUnmount(() => {
               :show-results="showResults"
               @ran="runNote = $event"
               @close-results="showResults = false"
+              @manage-snippets="openTool('snippets')"
             />
             <ObjectView
               v-else-if="tab.kind === 'object'"
@@ -887,6 +909,7 @@ onBeforeUnmount(() => {
               <Designer v-else-if="tab.tool === 'designer'" :command="tab.command" :preferred-connection="tab.preferredConnection" :connections="connections" @applied="navigatorRef?.refresh()" />
               <Monitor v-else-if="tab.tool === 'monitor'" :preferred-connection="tab.preferredConnection" :connections="connections" :revision="revision" />
               <Models v-else-if="tab.tool === 'models'" />
+              <Snippets v-else-if="tab.tool === 'snippets'" @insert="insertSnippet" />
               <Account v-else-if="tab.tool === 'account'" />
             </div>
           </div>

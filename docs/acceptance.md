@@ -17,7 +17,7 @@
 
 | 编号 | 结果 |
 | --- | --- |
-| A01 | 控制台已拆成 connection、query、catalog、migration、backup、overview、llm、monitor。父模块只组合。没有 Service 层 |
+| A01 | 控制台已拆成 connection、query、catalog、migration、backup、overview、llm、monitor、snippet。父模块只组合。没有 Service 层 |
 | A02 | Resource 编排，Repository 管应用库，目标库走 `shared.Opener` |
 | A03 | 公开业务方法使用一个 Request 或 Search，返回 Response 或 PageResponse |
 | A04 | 连接更新和删除在 Repository 事务内完成 |
@@ -38,6 +38,8 @@
 - 认证不能关闭。没有匿名 SQL 控制台。
 - GORM 关闭默认事务，避免每条写入都多一层事务。
 - 连接按创建人隔离。注册成员与管理员各自看到自己的连接，模型配置仍然共享。
-- 连接不能导出，避免把主机、账号和口令写进文件。仍可导入 `dbgo-connections` 文件。
+- 连接可以导出。默认文件不含口令；`include_password` 为 true 时才写入口令。仍可导入 `dbgo-connections` 文件。
+- 代码段按创建人隔离，可以导入导出 `dbgo-snippets` 文件。
+- 编辑表定义时返回全部字段。类型保留长度和精度，并带上数据库里的字段注释。
 - 页码或页大小为 0 时使用默认值，因为 JSON 分不出缺省和 0。
 - 管理员初始口令不写进仓库，也不写进日志。
