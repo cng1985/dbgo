@@ -14,6 +14,7 @@ import Connections from './Connections.vue'
 import Catalog from './Catalog.vue'
 import Migrations from './Migrations.vue'
 import Backups from './Backups.vue'
+import Etl from './Etl.vue'
 import Designer from './Designer.vue'
 import Monitor from './Monitor.vue'
 import Models from './Models.vue'
@@ -27,6 +28,7 @@ const tools = {
   catalog: { title: '结构', path: '/catalog' },
   migrations: { title: '迁移', path: '/migrations' },
   backups: { title: '备份', path: '/backups' },
+  etl: { title: 'ETL', path: '/etl' },
   designer: { title: '对象设计', path: '/designer' },
   monitor: { title: '性能', path: '/monitor' },
   models: { title: '大模型', path: '/models' },
@@ -41,6 +43,7 @@ const pathTool = {
   '/catalog': 'catalog',
   '/migrations': 'migrations',
   '/backups': 'backups',
+  '/etl': 'etl',
   '/designer': 'designer',
   '/monitor': 'monitor',
   '/models': 'models',
@@ -175,6 +178,7 @@ const menus = computed(() => [
       { label: '代码段', run: () => openTool('snippets') },
       { label: '迁移', run: () => openTool('migrations') },
       { label: '备份', run: () => openTool('backups') },
+      { label: 'ETL', run: () => openTool('etl') },
       { type: 'sep' },
       { label: '测试连接', disabled: !statusConnection.value, run: () => statusConnection.value && testConnection(statusConnection.value) },
       { label: '刷新导航', run: () => navigatorRef.value?.refresh() }
@@ -235,6 +239,7 @@ const contextItems = computed(() => {
       { label: '性能监控', run: () => openTool('monitor', { connectionId: node.connection.id }) },
       { label: '迁移', run: () => openTool('migrations', { connectionId: node.connection.id }) },
       { label: '备份', run: () => openTool('backups', { connectionId: node.connection.id }) },
+      { label: 'ETL', run: () => openTool('etl', { connectionId: node.connection.id }) },
       { type: 'sep' },
       { label: '编辑连接', run: () => editConnection(node.connection) },
       { label: '导出连接', run: () => openTool('connections', { command: { type: 'export', id: node.connection.id, seq: Date.now() } }) },
@@ -534,6 +539,7 @@ function tabIcon(tab) {
   if (tab.tool === 'connections') return 'database'
   if (tab.tool === 'migrations') return 'migration'
   if (tab.tool === 'backups') return 'backup'
+  if (tab.tool === 'etl') return 'etl'
   if (tab.tool === 'catalog' || tab.tool === 'designer') return 'catalog'
   if (tab.tool === 'monitor') return 'overview'
   if (tab.tool === 'models' || tab.tool === 'snippets') return 'sql'
@@ -939,6 +945,7 @@ onBeforeUnmount(() => {
       <button class="icon-btn" type="button" title="结构" @click="openTool('catalog')"><Icon name="catalog" /></button>
       <button class="icon-btn" type="button" title="迁移" @click="openTool('migrations')"><Icon name="migration" /></button>
       <button class="icon-btn" type="button" title="备份" @click="openTool('backups')"><Icon name="backup" /></button>
+      <button class="icon-btn" type="button" title="ETL" @click="openTool('etl')"><Icon name="etl" /></button>
       <button class="icon-btn" type="button" title="对象设计" @click="design('table')"><Icon name="add" /></button>
       <button class="icon-btn" type="button" title="性能" @click="openTool('monitor', { connectionId: statusConnection?.id || '' })"><Icon name="overview" /></button>
       <button class="icon-btn" type="button" title="大模型" @click="openTool('models')"><Icon name="sql" /></button>
@@ -1019,6 +1026,7 @@ onBeforeUnmount(() => {
               <Catalog v-else-if="tab.tool === 'catalog'" :preferred-connection="tab.preferredConnection" :revision="revision" :structure-refresh="structureRefresh" />
               <Migrations v-else-if="tab.tool === 'migrations'" :preferred-connection="tab.preferredConnection" :revision="revision" />
               <Backups v-else-if="tab.tool === 'backups'" :preferred-connection="tab.preferredConnection" :revision="revision" />
+              <Etl v-else-if="tab.tool === 'etl'" :preferred-connection="tab.preferredConnection" :revision="revision" />
               <Designer v-else-if="tab.tool === 'designer'" :command="tab.command" :preferred-connection="tab.preferredConnection" :connections="connections" @applied="onApplied" />
               <Monitor v-else-if="tab.tool === 'monitor'" :preferred-connection="tab.preferredConnection" :connections="connections" :revision="revision" />
               <Models v-else-if="tab.tool === 'models'" />

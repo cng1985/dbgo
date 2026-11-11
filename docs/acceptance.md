@@ -4,7 +4,7 @@
 
 ## 支持矩阵
 
-| 数据库 | 应用库迁移 | 目标库查询、目录、迁移、备份 | 证据 |
+| 数据库 | 应用库迁移 | 目标库查询、目录、迁移、备份、ETL | 证据 |
 | --- | --- | --- | --- |
 | SQLite | 已验证 | 已验证 | `go test ./internal/app/` 的控制台流程，以及连接删除回滚测试 |
 | MySQL | 计划支持 | 计划支持 | 驱动可编译；标识符和危险语句有单元测试。本环境没有 MySQL 服务 |
@@ -17,7 +17,7 @@
 
 | 编号 | 结果 |
 | --- | --- |
-| A01 | 控制台已拆成 connection、query、catalog、migration、backup、overview、llm、monitor、snippet。父模块只组合。没有 Service 层 |
+| A01 | 控制台已拆成 connection、query、catalog、migration、backup、etl、overview、llm、monitor、snippet。父模块只组合。没有 Service 层 |
 | A02 | Resource 编排，Repository 管应用库，目标库走 `shared.Opener` |
 | A03 | 公开业务方法使用一个 Request 或 Search，返回 Response 或 PageResponse |
 | A04 | 连接更新和删除在 Repository 事务内完成 |

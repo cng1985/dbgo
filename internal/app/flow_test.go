@@ -155,6 +155,116 @@ func TestConsoleFlow(t *testing.T) {
 		t.Fatalf("只读模式应拒绝写入: %#v", blocked)
 	}
 
+	dest := post(t, client, base+"/api/connection/create", map[string]any{
+		"name":        "目标库",
+		"driver":      "sqlite",
+		"sqlite_path": "dest.db",
+		"remark":      "",
+	})
+	if dest.Code != 200 {
+		t.Fatalf("创建目标连接失败: %#v", dest)
+	}
+	destID, _ := dest.Data["id"].(string)
+	createdPlace := post(t, client, base+"/api/query/execute", map[string]any{
+		"connection_id": destID,
+		"read_only":     false,
+		"sql":           "create table place (code integer primary key, title text)",
+	})
+	if createdPlace.Code != 200 {
+		t.Fatalf("创建目标表失败: %#v", createdPlace)
+	}
+	rejectedETL := post(t, client, base+"/api/etl/create", map[string]any{
+		"name":                 "非法抽取",
+		"source_connection_id": connectionID,
+		"source_sql":           "delete from city",
+		"target_connection_id": destID,
+		"target_table":         "place",
+		"write_mode":           "append",
+	})
+	if rejectedETL.Code != 400 {
+		t.Fatalf("写入语句不能当作抽取: %#v", rejectedETL)
+	}
+	etlPreview := post(t, client, base+"/api/etl/preview", map[string]any{
+		"source_connection_id": connectionID,
+		"source_sql":           "select id, upper(name) as title from city order by id",
+	})
+	previewColumns, _ := etlPreview.Data["columns"].([]any)
+	if etlPreview.Code != 200 || len(previewColumns) != 2 {
+		t.Fatalf("预览应返回字段: %#v", etlPreview)
+	}
+	task := post(t, client, base+"/api/etl/create", map[string]any{
+		"name":                 "城市同步",
+		"source_connection_id": connectionID,
+		"source_sql":           "select id, upper(name) as title from city order by id",
+		"target_connection_id": destID,
+		"target_table":         "place",
+		"write_mode":           "replace",
+		"mappings": []any{
+			map[string]any{"source": "id", "target": "code"},
+			map[string]any{"source": "title", "target": "title"},
+		},
+	})
+	if task.Code != 200 || task.Data["version"] != float64(1) {
+		t.Fatalf("创建 ETL 任务失败: %#v", task)
+	}
+	taskID, _ := task.Data["id"].(string)
+	ran := post(t, client, base+"/api/etl/run", map[string]any{"id": taskID})
+	if ran.Code != 200 || ran.Data["status"] != "succeeded" || ran.Data["rows_written"] != float64(2) {
+		t.Fatalf("ETL 应写入两行: %#v", ran)
+	}
+	copied := post(t, client, base+"/api/query/execute", map[string]any{
+		"connection_id": destID,
+		"read_only":     true,
+		"sql":           "select code, title from place order by code",
+	})
+	copiedStatements, _ := copied.Data["statements"].([]any)
+	copiedFirst, _ := copiedStatements[0].(map[string]any)
+	copiedRows, _ := copiedFirst["rows"].([]any)
+	copiedRow, _ := copiedRows[0].([]any)
+	if copied.Code != 200 || len(copiedRows) != 2 || len(copiedRow) < 2 || copiedRow[1] != "杭州" {
+		t.Fatalf("目标表应读到转换后的杭州: %#v", copied)
+	}
+	listed := post(t, client, base+"/api/etl/search", map[string]any{"page": 1, "page_size": 20})
+	listedRows, _ := listed.Raw["data"].([]any)
+	listedFirst, _ := listedRows[0].(map[string]any)
+	if listed.Raw["total"] != float64(1) || listedFirst["last_status"] != "succeeded" || listedFirst["last_rows_written"] != float64(2) {
+		t.Fatalf("任务列表应带上最近一次执行: %#v", listed.Raw)
+	}
+	conflicted := post(t, client, base+"/api/etl/update", map[string]any{
+		"id":                   taskID,
+		"version":              1,
+		"name":                 "城市同步",
+		"source_connection_id": connectionID,
+		"source_sql":           "select id, upper(name) as title from city order by id",
+		"target_connection_id": destID,
+		"target_table":         "place",
+		"write_mode":           "append",
+		"mappings": []any{
+			map[string]any{"source": "id", "target": "code"},
+			map[string]any{"source": "title", "target": "title"},
+		},
+	})
+	if conflicted.Code != 200 || conflicted.Data["version"] != float64(2) || conflicted.Data["write_mode"] != "append" {
+		t.Fatalf("应能用当前版本修改任务: %#v", conflicted)
+	}
+	stale := post(t, client, base+"/api/etl/update", map[string]any{
+		"id":                   taskID,
+		"version":              1,
+		"name":                 "城市同步",
+		"source_connection_id": connectionID,
+		"source_sql":           "select id, name from city",
+		"target_connection_id": destID,
+		"target_table":         "place",
+		"write_mode":           "append",
+	})
+	if stale.Code != 409 {
+		t.Fatalf("旧版本更新应冲突: %#v", stale)
+	}
+	missingTask := post(t, client, base+"/api/etl/run", map[string]any{"id": "999999"})
+	if missingTask.Code != 404 {
+		t.Fatalf("不存在的任务应返回 404: %#v", missingTask)
+	}
+
 	tables := post(t, client, base+"/api/catalog/tables", map[string]any{"connection_id": connectionID})
 	if tables.Code != 200 || !containsName(tables.Data["tables"], "city") {
 		t.Fatalf("目录中应看到 city: %#v", tables)

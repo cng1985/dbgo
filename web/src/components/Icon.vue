@@ -79,6 +79,11 @@ defineProps({
       <circle cx="7" cy="7" r="3.4" fill="none" stroke="currentColor" stroke-width="1.3" />
       <path d="M9.6 9.6 13 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
     </template>
+    <template v-else-if="name === 'etl'">
+      <rect x="1.5" y="3.2" width="4.6" height="4.2" fill="none" stroke="currentColor" stroke-width="1.2" />
+      <path d="M6.4 5.2h2.2M7.4 3.8 8.8 5.2 7.4 6.6" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
+      <rect x="9.9" y="8.6" width="4.6" height="4.2" fill="none" stroke="currentColor" stroke-width="1.2" />
+    </template>
     <template v-else-if="name === 'close'">
       <path d="M4 4l8 8M12 4 4 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
     </template>
