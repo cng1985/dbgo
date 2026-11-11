@@ -17,12 +17,12 @@
 
 | 编号 | 结果 |
 | --- | --- |
-| A01 | 控制台超过三个独立业务，已拆成 connection、query、catalog、migration、backup、overview。父模块只组合。没有 Service 层 |
+| A01 | 控制台已拆成 connection、query、catalog、migration、backup、overview、llm、monitor。父模块只组合。没有 Service 层 |
 | A02 | Resource 编排，Repository 管应用库，目标库走 `shared.Opener` |
 | A03 | 公开业务方法使用一个 Request 或 Search，返回 Response 或 PageResponse |
 | A04 | 连接更新和删除在 Repository 事务内完成 |
 | A05 | 删除连接与删除迁移定义共用一个事务。目标库语句与应用库状态是补偿，不是跨库事务 |
-| A06 | 受保护接口要求 Scope。当前是单管理员、共享连接，没有租户隔离 |
+| A06 | 受保护接口要求 Scope。admin 与 member 共用控制台，连接不按用户隔离 |
 | A07 | 空备注可以保存。更新密码留空会保持原密文。主键用字符串 |
 | A08 | 连接排序有白名单。关键字搜索转义 LIKE |
 | A09 | 三份配置在 `configs/`。环境变量 `false` 和端口 `0` 有测试 |
@@ -37,6 +37,6 @@
 
 - 认证不能关闭。没有匿名 SQL 控制台。
 - GORM 关闭默认事务，避免每条写入都多一层事务。
-- 第一版不按用户划分连接。
+- 不按用户划分连接。注册成员与管理员看到同一套连接和模型配置。
 - 页码或页大小为 0 时使用默认值，因为 JSON 分不出缺省和 0。
 - 管理员初始口令不写进仓库，也不写进日志。

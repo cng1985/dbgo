@@ -60,7 +60,8 @@ func (m *Chain) GuardAPI() gin.HandlerFunc {
 			response.HandleError(c, err)
 			return
 		}
-		if c.Request.URL.Path == "/api/auth/login" {
+		switch c.Request.URL.Path {
+		case "/api/auth/login", "/api/auth/register":
 			if err := m.loginLimit.Allow("login:" + c.ClientIP()); err != nil {
 				response.HandleError(c, err)
 				return

@@ -46,7 +46,8 @@ func RequireScope(ctx context.Context) (Scope, error) {
 	return scope, nil
 }
 
-// Allow 是当前单租户控制台的角色判定。只有 admin 拥有全部业务权限。
+// Allow 是当前共享控制台的角色判定。admin 与注册产生的 member 都能使用业务功能。
+// 连接不按用户隔离。
 type sessionTokenKey struct{}
 
 func WithSessionToken(ctx context.Context, token string) context.Context {
@@ -65,8 +66,10 @@ func (s Scope) Allow(permission string) error {
 	if permission == "" {
 		return apperrors.Forbidden("")
 	}
-	if s.Role != "admin" {
+	switch s.Role {
+	case "admin", "member":
+		return nil
+	default:
 		return apperrors.Forbidden("")
 	}
-	return nil
 }

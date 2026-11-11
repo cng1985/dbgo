@@ -157,6 +157,38 @@ func (r *Repository) Search(ctx context.Context, search *ConnectionSearch) (resp
 	return response.PageResponse[ConnectionSimple]{Data: items, Total: total, Page: page, PageSize: pageSize}, nil
 }
 
+func (r *Repository) List(ctx context.Context, ids []int64) ([]Connection, error) {
+	query := r.db.WithContext(ctx).Model(&Connection{}).Order("name asc")
+	if len(ids) > 0 {
+		query = query.Where("id in ?", ids)
+	}
+	var entities []Connection
+	if err := query.Limit(500).Find(&entities).Error; err != nil {
+		return nil, err
+	}
+	return entities, nil
+}
+
+func (r *Repository) Count(ctx context.Context) (int64, error) {
+	var total int64
+	err := r.db.WithContext(ctx).Model(&Connection{}).Count(&total).Error
+	return total, err
+}
+
+func (r *Repository) CreateMany(ctx context.Context, entities []*Connection) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, entity := range entities {
+			if err := tx.Create(entity).Error; err != nil {
+				if database.IsUnique(err) {
+					return apperrors.Conflict("连接名称已存在")
+				}
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func (r *Repository) find(ctx context.Context, id int64) (*Connection, error) {
 	var entity Connection
 	err := r.db.WithContext(ctx).Where("id = ?", id).Take(&entity).Error

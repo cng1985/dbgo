@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/cng1985/dbgo/internal/platform/config"
@@ -47,6 +48,11 @@ func (r *Resource) Login(ctx context.Context, request *AuthLoginRequest) (respon
 	if !checkPassword(hash, request.Password) || user == nil || user.Disabled {
 		return zero, apperrors.Invalid("用户名或密码错误")
 	}
+	return r.openSession(ctx, user)
+}
+
+func (r *Resource) openSession(ctx context.Context, user *User) (response.Response[AuthProfileResponse], error) {
+	var zero response.Response[AuthProfileResponse]
 	token, tokenHash, err := newToken()
 	if err != nil {
 		return zero, apperrors.Internal(err)
@@ -58,6 +64,86 @@ func (r *Resource) Login(ctx context.Context, request *AuthLoginRequest) (respon
 	profile := UserEntityToProfile(user, &expires)
 	profile.SessionToken = token
 	return response.OK(*profile), nil
+}
+
+func (r *Resource) Register(ctx context.Context, request *AuthRegisterRequest) (response.Response[AuthProfileResponse], error) {
+	var zero response.Response[AuthProfileResponse]
+	if !r.cfg.Auth.AllowRegister {
+		return zero, apperrors.Forbidden("当前环境未开放注册")
+	}
+	if request == nil {
+		return zero, apperrors.Invalid("请求不能为空")
+	}
+	username, err := normalizeUsername(request.Username)
+	if err != nil {
+		return zero, err
+	}
+	if strings.EqualFold(username, r.cfg.Auth.AdminUsername) {
+		return zero, apperrors.Conflict("该用户名不可注册")
+	}
+	displayName, err := normalizeDisplayName(request.DisplayName, username)
+	if err != nil {
+		return zero, err
+	}
+	email, err := normalizeEmail(request.Email)
+	if err != nil {
+		return zero, err
+	}
+	hash, err := hashPassword(request.Password)
+	if err != nil {
+		return zero, err
+	}
+	now := time.Now().UTC()
+	user := &User{
+		Username:     username,
+		PasswordHash: hash,
+		DisplayName:  displayName,
+		Email:        email,
+		RoleCode:     "member",
+		Disabled:     false,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := r.repo.createUser(ctx, user); err != nil {
+		return zero, err
+	}
+	return r.openSession(ctx, user)
+}
+
+func (r *Resource) Options(_ context.Context, _ *AuthProfileRequest) (response.Response[AuthOptionsResponse], error) {
+	return response.OK(AuthOptionsResponse{AllowRegister: r.cfg.Auth.AllowRegister}), nil
+}
+
+func (r *Resource) UpdateProfile(ctx context.Context, request *AuthProfileUpdateRequest) (response.Response[AuthProfileResponse], error) {
+	var zero response.Response[AuthProfileResponse]
+	scope, err := domain.RequireScope(ctx)
+	if err != nil {
+		return zero, err
+	}
+	if err := scope.Allow("auth:profile"); err != nil {
+		return zero, err
+	}
+	if request == nil {
+		return zero, apperrors.Invalid("请求不能为空")
+	}
+	user, err := r.repo.findByID(ctx, scope.ActorID)
+	if err != nil {
+		return zero, err
+	}
+	displayName, err := normalizeDisplayName(request.DisplayName, user.Username)
+	if err != nil {
+		return zero, err
+	}
+	email, err := normalizeEmail(request.Email)
+	if err != nil {
+		return zero, err
+	}
+	if err := r.repo.updateProfile(ctx, user.ID, displayName, email); err != nil {
+		return zero, err
+	}
+	user.DisplayName = displayName
+	user.Email = email
+	return response.OK(*UserEntityToProfile(user, nil)), nil
 }
 
 func (r *Resource) Logout(ctx context.Context, _ *AuthLogoutRequest) (response.Response[AuthProfileResponse], error) {

@@ -10,7 +10,7 @@ const props = defineProps({
   tables: { type: Array, default: () => [] },
   fill: { type: Boolean, default: false }
 })
-const emit = defineEmits(['update:modelValue', 'run'])
+const emit = defineEmits(['update:modelValue', 'run', 'menu'])
 
 const root = ref(null)
 const input = ref(null)
@@ -281,6 +281,41 @@ function onViewport() {
   }
 }
 
+function selection() {
+  const area = input.value
+  if (!area) {
+    return { text: '', start: 0, end: 0 }
+  }
+  const start = area.selectionStart ?? 0
+  const end = area.selectionEnd ?? start
+  const from = Math.min(start, end)
+  const to = Math.max(start, end)
+  return { text: area.value.slice(from, to), start: from, end: to }
+}
+
+function replaceRange(start, end, value) {
+  const area = input.value
+  if (!area) {
+    return
+  }
+  const next = area.value.slice(0, start) + value + area.value.slice(end)
+  area.value = next
+  text.value = next
+  emit('update:modelValue', next)
+  const caret = start + String(value).length
+  area.focus()
+  area.selectionStart = area.selectionEnd = caret
+  syncScroll()
+}
+
+function onContextMenu(event) {
+  event.preventDefault()
+  open.value = false
+  emit('menu', { x: event.clientX, y: event.clientY, ...selection() })
+}
+
+defineExpose({ selection, replaceRange })
+
 onMounted(() => {
   if (input.value) {
     input.value.value = props.modelValue || ''
@@ -318,6 +353,7 @@ onBeforeUnmount(() => {
         @click="refreshSuggest(false)"
         @scroll="syncScroll"
         @blur="onBlur"
+        @contextmenu="onContextMenu"
       ></textarea>
       <div v-if="!text" class="sql-placeholder">输入 SQL，Ctrl+Space 提示</div>
     </div>

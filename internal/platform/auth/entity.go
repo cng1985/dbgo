@@ -7,6 +7,7 @@ type User struct {
 	Username     string    `gorm:"size:64;not null"`
 	PasswordHash string    `gorm:"size:100;not null"`
 	DisplayName  string    `gorm:"size:80;not null"`
+	Email        string    `gorm:"size:120;not null"`
 	RoleCode     string    `gorm:"size:32;not null"`
 	Disabled     bool      `gorm:"not null"`
 	CreatedAt    time.Time `gorm:"not null"`

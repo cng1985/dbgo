@@ -64,6 +64,7 @@ type AuthConfig struct {
 	AdminPassword      string        `yaml:"admin_password"`
 	Secret             string        `yaml:"secret"`
 	LoginRatePerMinute int           `yaml:"login_rate_per_minute"`
+	AllowRegister      bool          `yaml:"allow_register"`
 }
 
 type LoggingConfig struct {

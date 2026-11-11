@@ -21,6 +21,42 @@ type ConnectionDeleteRequest struct {
 	ID int64 `json:"id,string"`
 }
 
+type ConnectionExportRequest struct {
+	IDs             []string `json:"ids"`
+	IncludePassword bool     `json:"include_password"`
+}
+
+type ConnectionPortable struct {
+	Name         string `json:"name"`
+	Driver       string `json:"driver"`
+	Host         string `json:"host,omitempty"`
+	Port         int    `json:"port,omitempty"`
+	DatabaseName string `json:"database_name,omitempty"`
+	Username     string `json:"username,omitempty"`
+	Password     string `json:"password,omitempty"`
+	SQLitePath   string `json:"sqlite_path,omitempty"`
+	SSLMode      string `json:"ssl_mode,omitempty"`
+	Remark       string `json:"remark,omitempty"`
+}
+
+type ConnectionDocument struct {
+	Format      string               `json:"format"`
+	Version     int                  `json:"version"`
+	ExportedAt  time.Time            `json:"exported_at"`
+	Connections []ConnectionPortable `json:"connections"`
+}
+
+type ConnectionImportRequest struct {
+	Document   *ConnectionDocument `json:"document"`
+	OnConflict string              `json:"on_conflict"`
+}
+
+type ConnectionImportResponse struct {
+	Created int                `json:"created"`
+	Skipped int                `json:"skipped"`
+	Items   []ConnectionSimple `json:"items"`
+}
+
 type ConnectionSearch struct {
 	Keyword   string `json:"keyword"`
 	Driver    string `json:"driver"`

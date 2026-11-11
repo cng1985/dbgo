@@ -32,6 +32,7 @@ auth:
   cookie_secure: false
   admin_username: admin
   login_rate_per_minute: 10
+  allow_register: true
 logging:
   level: info
   format: json

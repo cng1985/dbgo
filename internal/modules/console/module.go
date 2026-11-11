@@ -6,7 +6,9 @@ import (
 	"github.com/cng1985/dbgo/internal/modules/console/backup"
 	"github.com/cng1985/dbgo/internal/modules/console/catalog"
 	"github.com/cng1985/dbgo/internal/modules/console/connection"
+	"github.com/cng1985/dbgo/internal/modules/console/llm"
 	"github.com/cng1985/dbgo/internal/modules/console/migration"
+	"github.com/cng1985/dbgo/internal/modules/console/monitor"
 	"github.com/cng1985/dbgo/internal/modules/console/overview"
 	"github.com/cng1985/dbgo/internal/modules/console/query"
 )
@@ -27,4 +29,6 @@ var Module = fx.Module(
 	migration.Module,
 	backup.Module,
 	overview.Module,
+	llm.Module,
+	monitor.Module,
 )

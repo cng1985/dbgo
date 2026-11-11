@@ -9,8 +9,10 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -238,6 +240,132 @@ func TestConsoleFlow(t *testing.T) {
 	})
 	if again.Code != 200 {
 		t.Fatalf("恢复后查询失败: %#v", again)
+	}
+
+	preview := post(t, client, base+"/api/catalog/preview", map[string]any{
+		"driver":     "sqlite",
+		"kind":       "view",
+		"name":       "city_names",
+		"select_sql": "select id, name from city",
+	})
+	viewSQL, _ := preview.Data["sql"].(string)
+	if preview.Code != 200 || !strings.Contains(viewSQL, "city_names") {
+		t.Fatalf("视图预览失败: %#v", preview)
+	}
+	appliedView := post(t, client, base+"/api/catalog/apply", map[string]any{
+		"connection_id": connectionID,
+		"sql":           viewSQL,
+	})
+	if appliedView.Code != 200 {
+		t.Fatalf("执行建视图失败: %#v", appliedView)
+	}
+	objects := post(t, client, base+"/api/catalog/objects", map[string]any{"connection_id": connectionID, "kind": "view"})
+	if objects.Code != 200 || !containsName(objects.Data["objects"], "city_names") {
+		t.Fatalf("应列出视图 city_names: %#v", objects)
+	}
+	definition := post(t, client, base+"/api/catalog/definition", map[string]any{
+		"connection_id": connectionID,
+		"kind":          "view",
+		"name":          "city_names",
+	})
+	definedSQL, _ := definition.Data["sql"].(string)
+	if definition.Code != 200 || !strings.Contains(strings.ToLower(definedSQL), "city") {
+		t.Fatalf("应读到视图定义: %#v", definition)
+	}
+	droppedView := post(t, client, base+"/api/query/execute", map[string]any{
+		"connection_id": connectionID,
+		"read_only":     false,
+		"sql":           "drop view city_names",
+	})
+	if droppedView.Code != 200 {
+		t.Fatalf("删除视图失败: %#v", droppedView)
+	}
+
+	snapshot := post(t, client, base+"/api/monitor/snapshot", map[string]any{"connection_id": connectionID})
+	metrics, _ := snapshot.Data["metrics"].([]any)
+	if snapshot.Code != 200 || snapshot.Data["driver"] != "sqlite" || len(metrics) == 0 {
+		t.Fatalf("性能快照失败: %#v", snapshot)
+	}
+
+	exported := post(t, client, base+"/api/connection/export", map[string]any{
+		"ids":              []string{connectionID},
+		"include_password": false,
+	})
+	exportedItems, _ := exported.Data["connections"].([]any)
+	if exported.Code != 200 || exported.Data["format"] != "dbgo-connections" || len(exportedItems) != 1 {
+		t.Fatalf("导出连接失败: %#v", exported)
+	}
+	exportedItem, _ := exportedItems[0].(map[string]any)
+	if exportedItem["password"] != nil && exportedItem["password"] != "" {
+		t.Fatalf("默认导出不应包含口令: %#v", exportedItem)
+	}
+	imported := post(t, client, base+"/api/connection/import", map[string]any{
+		"document":    exported.Data,
+		"on_conflict": "rename",
+	})
+	if imported.Code != 200 || imported.Data["created"] != float64(1) {
+		t.Fatalf("重名导入应改名后创建: %#v", imported)
+	}
+
+	options := post(t, client, base+"/api/auth/options", map[string]any{})
+	if options.Code != 200 || options.Data["allow_register"] != true {
+		t.Fatalf("注册开关应开启: %#v", options)
+	}
+	memberJar, _ := cookiejar.New(nil)
+	member := &http.Client{Jar: memberJar, Timeout: 20 * time.Second}
+	registered := post(t, member, base+"/api/auth/register", map[string]any{
+		"username":     "member1",
+		"password":     "test-pass-123",
+		"display_name": "成员",
+		"email":        "member@example.com",
+	})
+	if registered.Code != 200 || registered.Data["role"] != "member" || registered.Data["session_token"] != nil {
+		t.Fatalf("注册结果不正确: %#v", registered)
+	}
+	memberOverview := post(t, member, base+"/api/overview/one", map[string]any{})
+	if memberOverview.Code != 200 {
+		t.Fatalf("注册用户应能使用共享控制台: %#v", memberOverview)
+	}
+	profile := post(t, member, base+"/api/auth/profile/update", map[string]any{
+		"display_name": "成员甲",
+		"email":        "member@example.com",
+	})
+	if profile.Code != 200 || profile.Data["display_name"] != "成员甲" {
+		t.Fatalf("个人资料更新失败: %#v", profile)
+	}
+	duplicate := post(t, member, base+"/api/auth/register", map[string]any{
+		"username": "member1",
+		"password": "test-pass-123",
+	})
+	if duplicate.Code != 409 {
+		t.Fatalf("重复用户名应冲突: %#v", duplicate)
+	}
+
+	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"summary\":\"改写完成\",\"sql\":\"select id, name from city\",\"notes\":[\"避免 select *\"]}"}}]}`))
+	}))
+	defer llmServer.Close()
+	model := post(t, client, base+"/api/llm/create", map[string]any{
+		"name":       "本地模型",
+		"base_url":   llmServer.URL + "/v1",
+		"api_key":    "sk-test",
+		"model":      "test-model",
+		"is_default": true,
+	})
+	if model.Code != 200 || model.Data["api_key_set"] != true || model.Data["api_key"] != nil {
+		t.Fatalf("模型配置不应回显密钥: %#v", model)
+	}
+	optimized := post(t, client, base+"/api/llm/optimize", map[string]any{
+		"connection_id": connectionID,
+		"sql":           "select * from city",
+	})
+	if optimized.Code != 200 || optimized.Data["sql"] != "select id, name from city" {
+		t.Fatalf("SQL 优化失败: %#v", optimized)
 	}
 
 	emptyPage := post(t, client, base+"/api/connection/search", map[string]any{"keyword": "不存在的连接", "page": 1, "page_size": 20})

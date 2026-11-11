@@ -13,6 +13,10 @@ import Connections from './Connections.vue'
 import Catalog from './Catalog.vue'
 import Migrations from './Migrations.vue'
 import Backups from './Backups.vue'
+import Designer from './Designer.vue'
+import Monitor from './Monitor.vue'
+import Models from './Models.vue'
+import Account from './Account.vue'
 
 const storageKey = 'dbgo-workbench-v1'
 const tools = {
@@ -20,7 +24,11 @@ const tools = {
   connections: { title: '连接', path: '/connections' },
   catalog: { title: '结构', path: '/catalog' },
   migrations: { title: '迁移', path: '/migrations' },
-  backups: { title: '备份', path: '/backups' }
+  backups: { title: '备份', path: '/backups' },
+  designer: { title: '对象设计', path: '/designer' },
+  monitor: { title: '性能', path: '/monitor' },
+  models: { title: '大模型', path: '/models' },
+  account: { title: '个人中心', path: '/account' }
 }
 const pathTool = {
   '/': 'script',
@@ -29,7 +37,11 @@ const pathTool = {
   '/connections': 'connections',
   '/catalog': 'catalog',
   '/migrations': 'migrations',
-  '/backups': 'backups'
+  '/backups': 'backups',
+  '/designer': 'designer',
+  '/monitor': 'monitor',
+  '/models': 'models',
+  '/account': 'account'
 }
 
 const session = useSession()
@@ -93,6 +105,8 @@ const menus = computed(() => [
     items: [
       { label: '新建 SQL 脚本', run: () => newScript() },
       { label: '新建连接', run: createConnection },
+      { label: '导出连接', run: () => openTool('connections', { command: { type: 'export', seq: Date.now() } }) },
+      { label: '导入连接', run: () => openTool('connections', { command: { type: 'import', seq: Date.now() } }) },
       { type: 'sep' },
       { label: '关闭当前标签', disabled: !activeTab.value, run: () => activeTab.value && closeTab(activeTab.value) },
       { type: 'sep' },
@@ -103,7 +117,9 @@ const menus = computed(() => [
     id: 'edit',
     label: '编辑',
     items: [
-      { label: '修改密码', run: openPassword }
+      { label: '格式化 SQL', disabled: !sqlActive.value, run: () => editorAction('format') },
+      { label: '修改密码', run: openPassword },
+      { label: '个人中心', run: () => openTool('account') }
     ]
   },
   {
@@ -127,6 +143,9 @@ const menus = computed(() => [
     label: 'SQL 编辑器',
     items: [
       { label: '执行', hint: 'Ctrl+Enter', disabled: !sqlActive.value, run: runActive },
+      { label: '格式化', disabled: !sqlActive.value, run: () => editorAction('format') },
+      { label: '解释', disabled: !sqlActive.value, run: () => editorAction('explain') },
+      { label: 'AI 优化', disabled: !sqlActive.value, run: () => editorAction('optimize') },
       { label: '新建脚本', run: () => newScript() },
       { label: sqlActive.value && activeTab.value.readOnly ? '取消只读' : '设为只读', disabled: !sqlActive.value, run: toggleReadOnly },
       { label: showResults.value ? '隐藏结果' : '显示结果', run: () => { showResults.value = !showResults.value } }
@@ -138,6 +157,12 @@ const menus = computed(() => [
     items: [
       { label: '连接管理', run: () => openTool('connections') },
       { label: '结构浏览', run: () => openTool('catalog') },
+      { label: '新建表', run: () => design('table') },
+      { label: '新建视图', run: () => design('view') },
+      { label: '新建存储过程', run: () => design('procedure') },
+      { label: '新建函数', run: () => design('function') },
+      { label: '性能监控', run: () => openTool('monitor', { connectionId: statusConnection.value?.id || '' }) },
+      { label: '大模型', run: () => openTool('models') },
       { label: '迁移', run: () => openTool('migrations') },
       { label: '备份', run: () => openTool('backups') },
       { type: 'sep' },
@@ -173,7 +198,21 @@ const contextItems = computed(() => {
     items.push(
       { label: '查看数据', run: () => openData(node) },
       { label: '查看结构', run: () => openObject(node) },
+      { label: '编辑定义', run: () => design(node.kind, node, node.table) },
       { label: '在当前脚本中查询', run: () => fillSelect(node) },
+      { type: 'sep' }
+    )
+  }
+  if (node.kind === 'procedure' || node.kind === 'function') {
+    items.push({ label: '编辑定义', run: () => design(node.kind, node, node.object) })
+  }
+  if (node.kind === 'schema' && node.connection) {
+    items.push(
+      { label: '新建表', run: () => design('table', node) },
+      { label: '新建视图', run: () => design('view', node) },
+      { label: '新建存储过程', run: () => design('procedure', node) },
+      { label: '新建函数', run: () => design('function', node) },
+      { label: '性能监控', run: () => openTool('monitor', { connectionId: node.connection.id }) },
       { type: 'sep' }
     )
   }
@@ -183,6 +222,8 @@ const contextItems = computed(() => {
   if (node.kind === 'connection') {
     items.push(
       { label: '测试连接', run: () => testConnection(node.connection) },
+      { label: '性能监控', run: () => openTool('monitor', { connectionId: node.connection.id }) },
+      { label: '导出此连接', run: () => openTool('connections', { command: { type: 'export', id: node.connection.id, seq: Date.now() } }) },
       { label: '迁移', run: () => openTool('migrations', { connectionId: node.connection.id }) },
       { label: '备份', run: () => openTool('backups', { connectionId: node.connection.id }) },
       { type: 'sep' },
@@ -435,7 +476,10 @@ function tabIcon(tab) {
   if (tab.tool === 'connections') return 'database'
   if (tab.tool === 'migrations') return 'migration'
   if (tab.tool === 'backups') return 'backup'
-  if (tab.tool === 'catalog') return 'catalog'
+  if (tab.tool === 'catalog' || tab.tool === 'designer') return 'catalog'
+  if (tab.tool === 'monitor') return 'overview'
+  if (tab.tool === 'models') return 'sql'
+  if (tab.tool === 'account') return 'overview'
   return 'overview'
 }
 
@@ -534,6 +578,29 @@ async function removeConnection(row) {
   } catch (err) {
     runNote.value = err.message
   }
+}
+
+function design(kind, node, objectName = '') {
+  const connection = node?.connection || statusConnection.value
+  openTool('designer', {
+    connectionId: connection?.id || '',
+    command: {
+      type: objectName ? 'edit' : 'create',
+      kind,
+      connectionId: connection?.id || '',
+      schema: node?.schema || statusSchema.value || '',
+      name: objectName || '',
+      seq: Date.now()
+    }
+  })
+}
+
+function editorAction(name) {
+  const tab = activeTab.value
+  if (tab?.kind !== 'sql') {
+    return
+  }
+  editorMap.get(tab.id)?.[name]?.()
 }
 
 function createConnection() {
@@ -724,6 +791,7 @@ onBeforeUnmount(() => {
       <div class="menu user-menu">
         <button type="button" class="menu-label" @click="clickMenu('user')">{{ userName || '账号' }}</button>
         <div v-if="openMenu === 'user'" class="menu-pop user-pop" role="menu">
+          <button type="button" role="menuitem" @click="runItem({ run: () => openTool('account') })">个人中心</button>
           <button type="button" role="menuitem" @click="runItem({ run: openPassword })">修改密码</button>
           <button type="button" role="menuitem" @click="runItem({ run: logout })">退出</button>
         </div>
@@ -742,6 +810,9 @@ onBeforeUnmount(() => {
       <button class="icon-btn" type="button" title="结构" @click="openTool('catalog')"><Icon name="catalog" /></button>
       <button class="icon-btn" type="button" title="迁移" @click="openTool('migrations')"><Icon name="migration" /></button>
       <button class="icon-btn" type="button" title="备份" @click="openTool('backups')"><Icon name="backup" /></button>
+      <button class="icon-btn" type="button" title="对象设计" @click="design('table')"><Icon name="add" /></button>
+      <button class="icon-btn" type="button" title="性能" @click="openTool('monitor', { connectionId: statusConnection?.id || '' })"><Icon name="overview" /></button>
+      <button class="icon-btn" type="button" title="大模型" @click="openTool('models')"><Icon name="sql" /></button>
       <span class="tb-sep"></span>
       <button class="icon-btn" type="button" :title="navOpen ? '隐藏数据库导航' : '显示数据库导航'" @click="navOpen = !navOpen"><Icon name="nav" /></button>
     </div>
@@ -756,6 +827,7 @@ onBeforeUnmount(() => {
         @select="onSelect"
         @context="onContext"
         @open-data="openData"
+        @open-design="(node) => design(node.kind, node, node.object || node.table)"
         @reload="reloadConnections"
         @collapse="navOpen = false"
         @create-connection="createConnection"
@@ -814,6 +886,10 @@ onBeforeUnmount(() => {
               <Catalog v-else-if="tab.tool === 'catalog'" :preferred-connection="tab.preferredConnection" :revision="revision" />
               <Migrations v-else-if="tab.tool === 'migrations'" :preferred-connection="tab.preferredConnection" :revision="revision" />
               <Backups v-else-if="tab.tool === 'backups'" :preferred-connection="tab.preferredConnection" :revision="revision" />
+              <Designer v-else-if="tab.tool === 'designer'" :command="tab.command" :preferred-connection="tab.preferredConnection" :connections="connections" @applied="navigatorRef?.refresh()" />
+              <Monitor v-else-if="tab.tool === 'monitor'" :preferred-connection="tab.preferredConnection" :connections="connections" :revision="revision" />
+              <Models v-else-if="tab.tool === 'models'" />
+              <Account v-else-if="tab.tool === 'account'" />
             </div>
           </div>
         </div>
@@ -858,8 +934,8 @@ onBeforeUnmount(() => {
     <dialog ref="aboutDialog" class="modal">
       <form class="stack" @submit.prevent="aboutDialog.close()">
         <h2>关于 DBGo</h2>
-        <p>网页版数据库工作台。左侧浏览连接和对象，中间用 SQL 脚本查询，迁移和备份从数据库菜单进入。</p>
-        <p class="muted">支持 SQLite、MySQL、PostgreSQL 和 SQL Server。查询默认只读，写入前取消只读。</p>
+        <p>网页版数据库工作台。可以管理连接、设计表和例程、看性能、并用 OpenAI 协议的模型优化 SQL。</p>
+        <p class="muted">支持 SQLite、MySQL、PostgreSQL 和 SQL Server。查询默认只读，写入前取消只读。注册用户与管理员共用这套连接。</p>
         <div class="actions">
           <button class="btn" type="submit">关闭</button>
         </div>

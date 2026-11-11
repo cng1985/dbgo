@@ -80,6 +80,29 @@ func (r *Repository) findByID(ctx context.Context, id int64) (*User, error) {
 	return &entity, nil
 }
 
+func (r *Repository) createUser(ctx context.Context, entity *User) error {
+	err := r.db.WithContext(ctx).Create(entity).Error
+	if database.IsUnique(err) {
+		return apperrors.Conflict("用户名已存在")
+	}
+	return err
+}
+
+func (r *Repository) updateProfile(ctx context.Context, userID int64, displayName, email string) error {
+	result := r.db.WithContext(ctx).Model(&User{}).Where("id = ?", userID).Updates(map[string]any{
+		"display_name": displayName,
+		"email":        email,
+		"updated_at":   time.Now().UTC(),
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return apperrors.NotFound("用户不存在")
+	}
+	return nil
+}
+
 func (r *Repository) updatePassword(ctx context.Context, userID int64, hash string) error {
 	result := r.db.WithContext(ctx).Model(&User{}).Where("id = ?", userID).Updates(map[string]any{
 		"password_hash": hash,

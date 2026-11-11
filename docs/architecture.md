@@ -8,7 +8,7 @@ internal/app
 internal/platform
   config database domain response errors middleware routing server logging auth secret sqlscript buildinfo
 internal/modules/console
-  connection query catalog migration backup overview shared
+  connection query catalog migration backup overview llm monitor shared
 web
 migrations
 configs
@@ -36,10 +36,10 @@ configs
 
 会话放在 HttpOnly Cookie `dbgo_session`。所有 `/api` 请求还要带 `X-DBGo-Request: 1`，并在提供 Origin 时与 Host 一致。登录口令使用 bcrypt。会话表只保存令牌的 SHA256。
 
-上下文里的 Scope 含操作者、请求号和角色。当前只有 `admin` 角色，连接是控制台共享的，不按用户隔离。这是第一版团队控制台的明确边界，不是按租户做的数据权限。
+上下文里的 Scope 含操作者、请求号和角色。`admin` 与注册产生的 `member` 都能使用控制台。连接、模型配置和目标库是共享的，不按用户隔离。这是团队控制台的明确边界，不是按租户做的数据权限。
 
 连接口令用 AES-GCM 加密。密钥来自 `APP_AUTH_SECRET`，否则使用数据目录里自动生成的 `auth.key`。
 
 ## 前端
 
-`web/` 是 Vue 3、JavaScript、Vite 和 Pinia。登录后是数据库工作台：菜单和工具栏、左侧对象树、多标签 SQL 编辑器、底部状态栏。构建结果放进 `web/dist`，由 `web/embed.go` 嵌进二进制。页面不内联脚本和样式，以匹配 `default-src 'self'`。查询编辑器的高亮和补全也写在页面样式里，不在运行时注入 `<style>`。接口封装区分普通响应和分页响应，主键保持字符串。
+`web/` 是 Vue 3、JavaScript、Vite 和 Pinia。登录或注册后是数据库工作台：菜单和工具栏、左侧对象树、多标签 SQL 编辑器、对象设计、性能、模型配置和个人中心。构建结果放进 `web/dist`，由 `web/embed.go` 嵌进二进制。页面不内联脚本和样式，以匹配 `default-src 'self'`。查询编辑器的高亮和补全也写在页面样式里，不在运行时注入 `<style>`。接口封装区分普通响应和分页响应，主键保持字符串。

@@ -21,6 +21,8 @@ func (c *Controller) Register(groups routing.Groups) {
 	groups.Private.POST("/connection/one", c.one)
 	groups.Private.POST("/connection/search", c.search)
 	groups.Private.POST("/connection/delete", c.delete)
+	groups.Private.POST("/connection/export", c.export)
+	groups.Private.POST("/connection/import", c.importConnections)
 	groups.Long.POST("/connection/test", c.test)
 }
 
@@ -87,6 +89,34 @@ func (c *Controller) delete(ctx *gin.Context) {
 		return
 	}
 	result, err := c.resource.Delete(ctx.Request.Context(), &request)
+	if err != nil {
+		response.HandleError(ctx, err)
+		return
+	}
+	response.SuccessResponse(ctx, result)
+}
+
+func (c *Controller) export(ctx *gin.Context) {
+	var request ConnectionExportRequest
+	if err := response.BindJSON(ctx, &request); err != nil {
+		response.HandleError(ctx, err)
+		return
+	}
+	result, err := c.resource.Export(ctx.Request.Context(), &request)
+	if err != nil {
+		response.HandleError(ctx, err)
+		return
+	}
+	response.SuccessResponse(ctx, result)
+}
+
+func (c *Controller) importConnections(ctx *gin.Context) {
+	var request ConnectionImportRequest
+	if err := response.BindJSON(ctx, &request); err != nil {
+		response.HandleError(ctx, err)
+		return
+	}
+	result, err := c.resource.Import(ctx.Request.Context(), &request)
 	if err != nil {
 		response.HandleError(ctx, err)
 		return
