@@ -132,6 +132,7 @@ func TestConsoleFlow(t *testing.T) {
 	selected := post(t, client, base+"/api/query/execute", map[string]any{
 		"connection_id": connectionID,
 		"read_only":     true,
+		"schema":        "main",
 		"sql":           "select id, name, population from city order by id",
 	})
 	if selected.Code != 200 {
@@ -145,6 +146,15 @@ func TestConsoleFlow(t *testing.T) {
 	rows, _ := first["rows"].([]any)
 	if len(rows) != 2 {
 		t.Fatalf("应读到两行城市数据: %#v", first)
+	}
+	badSchema := post(t, client, base+"/api/query/execute", map[string]any{
+		"connection_id": connectionID,
+		"read_only":     true,
+		"schema":        "bad\x00name",
+		"sql":           "select 1",
+	})
+	if badSchema.Code != 400 {
+		t.Fatalf("无效数据库名应拒绝: %#v", badSchema)
 	}
 	blocked := post(t, client, base+"/api/query/execute", map[string]any{
 		"connection_id": connectionID,

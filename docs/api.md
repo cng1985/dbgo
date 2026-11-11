@@ -60,7 +60,7 @@ SQLite 的 `sqlite_path` 可以是相对数据目录的路径。网络库需要�
 
 | 路径 | 说明 |
 | --- | --- |
-| `POST /api/query/execute` | `connection_id`、`sql`、`read_only`、`max_rows`、`timeout_seconds`。`read_only` 省略时为 true |
+| `POST /api/query/execute` | `connection_id`、`sql`、`read_only`、`max_rows`、`timeout_seconds`，可选 `schema`。`read_only` 省略时为 true。`schema` 是查询页选中的数据库或模式 |
 | `POST /api/query/one` | 历史详情，不含结果网格 |
 | `POST /api/query/search` | 可按连接和 `success`/`failed` 筛选 |
 | `POST /api/catalog/schemas` | 模式 |
@@ -74,6 +74,8 @@ SQLite 的 `sqlite_path` 可以是相对数据目录的路径。网络库需要�
 | `POST /api/catalog/apply` | 长请求。在选定连接上执行最多 300 条对象语句。SQLite 在同一条连接的事务里执行，执行期间关闭外键强制，提交前若出现新的外键错误则整段回滚 |
 
 单次查询最多 50 条语句。结果行数默认 100，不超过配置上限。`load_extension`、`xp_cmdshell` 和 `FROM PROGRAM` 会被拒绝。只读模式允许查询语句，也允许 SQL Server 的 `PRINT`。成功时每条语句的 `messages` 是 `PRINT` 和信息类消息，查询页的输出控制台显示这些文本。每条语句同时带回执行的 `sql`，查询页用它判断单表结果能否编辑行。
+
+传入 `schema` 时，语句在同一条连接上执行。MySQL 先 `USE` 选中的数据库，PostgreSQL 先 `SET search_path`，这样没有写库名的表会落到选中的库或模式。省略 `schema` 时用连接的默认库。SQL Server 列出的是模式，SQLite 不能切换当前库，这两种连接仍在当前库里执行。
 
 ## 迁移
 

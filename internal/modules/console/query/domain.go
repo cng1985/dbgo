@@ -5,6 +5,7 @@ import "time"
 type QueryExecuteRequest struct {
 	ConnectionID   int64  `json:"connection_id,string"`
 	SQL            string `json:"sql"`
+	Schema         string `json:"schema"`
 	ReadOnly       *bool  `json:"read_only"`
 	MaxRows        int    `json:"max_rows"`
 	TimeoutSeconds int    `json:"timeout_seconds"`

@@ -40,6 +40,10 @@ func (r *Resource) Execute(ctx context.Context, request *QueryExecuteRequest) (r
 	if sqlText == "" {
 		return zero, apperrors.Invalid("SQL 不能为空")
 	}
+	schema := strings.TrimSpace(request.Schema)
+	if _, err := shared.SchemaSwitchSQL("mysql", schema); err != nil {
+		return zero, apperrors.Invalid("数据库名无效")
+	}
 	if len(sqlText) > r.cfg.Query.MaxSQLBytes {
 		return zero, apperrors.TooLarge("SQL 超过长度限制")
 	}
@@ -73,6 +77,7 @@ func (r *Resource) Execute(ctx context.Context, request *QueryExecuteRequest) (r
 		ReadOnly:      readOnly,
 		MaxRows:       maxRows,
 		MaxStatements: 50,
+		Schema:        schema,
 	})
 	duration := time.Since(started).Milliseconds()
 	status := "success"

@@ -139,6 +139,7 @@ async function run(sqlText) {
     result.value = (await api('/api/query/execute', {
       connection_id: props.tab.connectionId,
       sql,
+      schema: props.tab.schema || '',
       read_only: props.tab.readOnly,
       max_rows: Number(props.tab.maxRows || 100)
     })).data
@@ -396,6 +397,7 @@ async function saveRow() {
     const data = (await api('/api/query/execute', {
       connection_id: props.tab.connectionId,
       sql,
+      schema: current.schema || props.tab.schema || '',
       read_only: false,
       max_rows: 1
     })).data
