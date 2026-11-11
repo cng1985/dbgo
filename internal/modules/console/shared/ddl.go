@@ -10,6 +10,7 @@ import (
 )
 
 type ColumnDraft struct {
+	Origin   string
 	Name     string
 	Type     string
 	Nullable bool

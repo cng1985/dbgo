@@ -81,6 +81,7 @@ type CatalogDefinitionResponse struct {
 }
 
 type CatalogColumnDraft struct {
+	Origin   string `json:"origin"`
 	Name     string `json:"name"`
 	Type     string `json:"type"`
 	Nullable bool   `json:"nullable"`
@@ -97,22 +98,28 @@ type CatalogParamDraft struct {
 }
 
 type CatalogPreviewRequest struct {
-	Driver    string               `json:"driver"`
-	Schema    string               `json:"schema"`
-	Kind      string               `json:"kind"`
-	Name      string               `json:"name"`
-	Replace   bool                 `json:"replace"`
-	Columns   []CatalogColumnDraft `json:"columns"`
-	SelectSQL string               `json:"select_sql"`
-	Params    []CatalogParamDraft  `json:"params"`
-	Returns   string               `json:"returns"`
-	Language  string               `json:"language"`
-	Body      string               `json:"body"`
+	Driver         string               `json:"driver"`
+	Schema         string               `json:"schema"`
+	Kind           string               `json:"kind"`
+	Name           string               `json:"name"`
+	Replace        bool                 `json:"replace"`
+	Mode           string               `json:"mode"`
+	BaselineSchema string               `json:"baseline_schema"`
+	BaselineName   string               `json:"baseline_name"`
+	Baseline       []CatalogColumnDraft `json:"baseline"`
+	Columns        []CatalogColumnDraft `json:"columns"`
+	SelectSQL      string               `json:"select_sql"`
+	Params         []CatalogParamDraft  `json:"params"`
+	Returns        string               `json:"returns"`
+	Language       string               `json:"language"`
+	Body           string               `json:"body"`
 }
 
 type CatalogPreviewResponse struct {
-	Driver string `json:"driver"`
-	SQL    string `json:"sql"`
+	Driver  string `json:"driver"`
+	SQL     string `json:"sql"`
+	Changed bool   `json:"changed,omitempty"`
+	Note    string `json:"note,omitempty"`
 }
 
 type CatalogApplyRequest struct {

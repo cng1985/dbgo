@@ -29,6 +29,8 @@ type ExecOptions struct {
 	MaxRows        int
 	MaxStatements  int
 	UseTransaction bool
+	// SQLiteSchema 在同一条连接上执行，并包进事务。执行期间关闭外键强制，避免重建表时级联删除引用行；提交前若出现新的外键错误则回滚。
+	SQLiteSchema bool
 }
 
 func Execute(ctx context.Context, db *sql.DB, driver, script string, options ExecOptions) ([]Result, error) {
@@ -55,6 +57,9 @@ func Execute(ctx context.Context, db *sql.DB, driver, script string, options Exe
 		if options.ReadOnly && !ReadOnlyToken(FirstToken(statement)) {
 			return nil, fmt.Errorf("只读模式只允许查询语句")
 		}
+	}
+	if options.SQLiteSchema && NormalizeDriver(driver) == "sqlite" {
+		return executeSQLiteSchema(ctx, db, statements, options)
 	}
 	if options.UseTransaction && driver != "mysql" {
 		return executeTransactional(ctx, db, driver, statements, options)
@@ -99,6 +104,90 @@ func executeTransactional(ctx context.Context, db *sql.DB, driver string, statem
 	}
 	committed = true
 	return results, nil
+}
+
+func executeSQLiteSchema(ctx context.Context, db *sql.DB, statements []string, options ExecOptions) ([]Result, error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	before, err := foreignKeyCounts(ctx, conn)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		return nil, err
+	}
+	defer func() {
+		_, _ = conn.ExecContext(context.Background(), "PRAGMA foreign_keys = ON")
+	}()
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	results := make([]Result, 0, len(statements))
+	for _, statement := range statements {
+		result, err := runStatement(ctx, tx, "sqlite", statement, options.MaxRows)
+		if err != nil {
+			return results, err
+		}
+		results = append(results, result)
+	}
+	after, err := foreignKeyCounts(ctx, tx)
+	if err != nil {
+		return results, err
+	}
+	if foreignKeysWorse(before, after) {
+		return results, fmt.Errorf("更新后外键约束不成立，已回滚")
+	}
+	if err := tx.Commit(); err != nil {
+		return results, err
+	}
+	committed = true
+	return results, nil
+}
+
+type fkKey struct {
+	table  string
+	parent string
+	id     int64
+}
+
+func foreignKeyCounts(ctx context.Context, query queryer) (map[fkKey]int, error) {
+	rows, err := query.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := map[fkKey]int{}
+	for rows.Next() {
+		var table, parent string
+		var rowid, id int64
+		if err := rows.Scan(&table, &rowid, &parent, &id); err != nil {
+			return nil, err
+		}
+		counts[fkKey{table: table, parent: parent, id: id}]++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return counts, nil
+}
+
+func foreignKeysWorse(before, after map[fkKey]int) bool {
+	for key, count := range after {
+		if count > before[key] {
+			return true
+		}
+	}
+	return false
 }
 
 type queryer interface {

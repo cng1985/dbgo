@@ -28,7 +28,20 @@ const isRoutine = computed(() => kind.value === 'procedure' || kind.value === 'f
 const sqliteRoutine = computed(() => driver.value === 'sqlite' && isRoutine.value)
 
 function blankColumn(primary = false) {
-  return { name: primary ? 'id' : '', type: defaultColumnType(driver.value), nullable: !primary, primary, identity: primary, default: '', comment: '' }
+  return { origin: '', name: primary ? 'id' : '', type: defaultColumnType(driver.value), nullable: !primary, primary, identity: primary, default: '', comment: '' }
+}
+
+function snapshotColumns(list) {
+  return list.map((item) => ({
+    origin: item.origin || '',
+    name: item.name || '',
+    type: item.type || '',
+    nullable: !!item.nullable,
+    primary: !!item.primary,
+    identity: !!item.identity,
+    default: item.default || '',
+    comment: item.comment || ''
+  }))
 }
 
 function optionsFor(type) {
@@ -41,10 +54,26 @@ function blankParam() {
 
 const columns = ref([blankColumn(true)])
 const params = ref([])
+const baselineColumns = ref(null)
+const baselineName = ref('')
+const baselineSchema = ref('')
+const baselineConnection = ref('')
+const openedAsEdit = ref(false)
+const alterSQL = ref('')
+const alterNote = ref('')
+const alterDialog = ref(null)
+const editingTable = computed(() => kind.value === 'table' && baselineColumns.value != null)
+const blockTableExecute = computed(() => openedAsEdit.value && kind.value === 'table')
 
 watch(driver, (value) => {
   for (const column of columns.value) {
     column.type = columnTypeFor(value, column.type)
+  }
+})
+
+watch(connectionID, (value) => {
+  if (baselineColumns.value && value !== baselineConnection.value) {
+    baselineColumns.value = null
   }
 })
 
@@ -65,11 +94,13 @@ watch(() => props.command, async (command) => {
   schema.value = command.schema || ''
   name.value = command.name || ''
   replace.value = command.type === 'edit'
+  openedAsEdit.value = command.type === 'edit'
   error.value = ''
   note.value = ''
   if (command.type === 'edit' && command.name) {
     await loadDefinition()
   } else {
+    baselineColumns.value = null
     columns.value = [blankColumn(true)]
     sql.value = ''
   }
@@ -107,6 +138,7 @@ async function preview() {
 
 async function loadDefinition() {
   error.value = ''
+  baselineColumns.value = null
   if (!connectionID.value || !name.value) {
     error.value = '请选择连接并填写对象名'
     return
@@ -120,11 +152,15 @@ async function loadDefinition() {
       kind: kind.value
     })).data
     sql.value = result.sql || ''
+    if (result.schema) {
+      schema.value = result.schema
+    }
     replace.value = kind.value !== 'table'
     const hints = [result.note || '']
     if (kind.value === 'table') {
       const loaded = Array.isArray(result.columns) ? result.columns : []
       columns.value = loaded.map((item) => ({
+        origin: item.name || '',
         name: item.name || '',
         type: matchColumnType(driver.value, item.type),
         nullable: !!item.nullable,
@@ -135,12 +171,76 @@ async function loadDefinition() {
       }))
       if (!loaded.length) {
         error.value = '没有读到字段'
+      } else {
+        baselineColumns.value = snapshotColumns(columns.value)
+        baselineName.value = name.value
+        baselineSchema.value = schema.value
+        baselineConnection.value = connectionID.value
       }
-      hints.push('字段、类型和注释已填入表格。生成 SQL 会按表格覆盖编辑器里的建表语句。勾选“替换已有对象”后会先删除这张表。')
+      hints.push('字段已填入表格。已有的表不会直接执行建表语句。改完字段后点“更新结构”，确认弹出的语句后再执行。')
     } else if (driver.value === 'sqlite' && kind.value === 'view') {
       hints.push('SQLite 需要先删除同名视图。勾选替换后重新生成，或在语句前写 DROP VIEW IF EXISTS。')
     }
     note.value = hints.filter(Boolean).join(' ')
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    pending.value = false
+  }
+}
+
+async function updateStructure() {
+  error.value = ''
+  note.value = ''
+  if (!editingTable.value) {
+    error.value = '请先读取要编辑的表'
+    return
+  }
+  if (!connectionID.value) {
+    error.value = '请选择连接'
+    return
+  }
+  pending.value = true
+  try {
+    const result = (await api('/api/catalog/preview', {
+      ...payload(),
+      mode: 'alter',
+      baseline_name: baselineName.value,
+      baseline_schema: baselineSchema.value,
+      baseline: baselineColumns.value
+    })).data
+    if (!result.changed || !String(result.sql || '').trim()) {
+      note.value = '结构没有变化'
+      return
+    }
+    alterSQL.value = result.sql
+    alterNote.value = result.note || ''
+    alterDialog.value?.showModal()
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    pending.value = false
+  }
+}
+
+async function confirmAlter() {
+  error.value = ''
+  const script = alterSQL.value.trim()
+  if (!script) {
+    error.value = '没有可执行的更新语句'
+    return
+  }
+  pending.value = true
+  try {
+    const result = (await api('/api/catalog/apply', {
+      connection_id: connectionID.value,
+      sql: script
+    })).data
+    alterDialog.value?.close()
+    const summary = `已更新表结构，执行 ${result.statements} 条语句，耗时 ${result.duration_ms} ms`
+    await loadDefinition()
+    note.value = summary
+    emit('applied')
   } catch (err) {
     error.value = err.message
   } finally {
@@ -198,12 +298,13 @@ async function apply() {
           <option value="function">函数</option>
         </select>
         <input v-model="name" placeholder="对象名" aria-label="对象名" />
-        <label class="check"><input v-model="replace" type="checkbox" /> 替换已有对象</label>
+        <label v-if="!blockTableExecute" class="check"><input v-model="replace" type="checkbox" /> 替换已有对象</label>
       </div>
       <div class="row">
         <button class="btn" type="button" :disabled="pending" @click="loadDefinition">读取定义</button>
-        <button class="btn" type="button" :disabled="pending" @click="preview">生成 SQL</button>
-        <button class="btn btn-primary" type="button" :disabled="pending" @click="apply">执行</button>
+        <button class="btn" type="button" :disabled="pending" @click="preview">{{ blockTableExecute ? '查看建表语句' : '生成 SQL' }}</button>
+        <button v-if="editingTable" class="btn btn-primary" type="button" :disabled="pending" @click="updateStructure">更新结构</button>
+        <button v-else-if="!blockTableExecute" class="btn btn-primary" type="button" :disabled="pending" @click="apply">执行</button>
       </div>
     </div>
 
@@ -282,8 +383,21 @@ async function apply() {
     </div>
 
     <label class="field">
-      <span>将要执行的 SQL。可以改完再执行。</span>
+      <span>{{ blockTableExecute ? '当前建表定义，不会直接执行。' : '将要执行的 SQL。可以改完再执行。' }}</span>
       <textarea v-model="sql" class="sql-box" spellcheck="false" />
     </label>
+    <dialog ref="alterDialog" class="modal wide">
+      <form class="stack" @submit.prevent="confirmAlter">
+        <h2>更新表结构</h2>
+        <p class="muted">下面是根据字段改动生成的语句。确定后才会执行，取消则不改动表。</p>
+        <p v-if="alterNote" class="notice">{{ alterNote }}</p>
+        <p v-if="error" class="notice">{{ error }}</p>
+        <textarea v-model="alterSQL" class="sql-box" spellcheck="false" aria-label="更新语句" />
+        <div class="actions">
+          <button class="btn btn-primary" type="submit" :disabled="pending">执行</button>
+          <button class="btn" type="button" :disabled="pending" @click="alterDialog.close()">取消</button>
+        </div>
+      </form>
+    </dialog>
   </div>
 </template>

@@ -98,11 +98,38 @@ func (r *Resource) Preview(ctx context.Context, request *CatalogPreviewRequest) 
 	if request == nil {
 		return zero, apperrors.Invalid("请求不能为空")
 	}
-	sqlText, err := shared.RenderObject(draftFrom(request))
-	if err != nil {
-		return zero, apperrors.Invalid(err.Error())
+	switch strings.ToLower(strings.TrimSpace(request.Mode)) {
+	case "", "create":
+		sqlText, err := shared.RenderObject(draftFrom(request))
+		if err != nil {
+			return zero, apperrors.Invalid(err.Error())
+		}
+		return response.OK(CatalogPreviewResponse{Driver: shared.NormalizeDriver(request.Driver), SQL: sqlText}), nil
+	case "alter":
+		if strings.ToLower(strings.TrimSpace(request.Kind)) != "table" {
+			return zero, apperrors.Invalid("只能更新表结构")
+		}
+		sqlText, changed, note, err := shared.RenderTableAlter(shared.TableAlter{
+			Driver:         request.Driver,
+			Schema:         request.Schema,
+			Name:           request.Name,
+			BaselineSchema: request.BaselineSchema,
+			BaselineName:   request.BaselineName,
+			Baseline:       columnDrafts(request.Baseline),
+			Columns:        columnDrafts(request.Columns),
+		})
+		if err != nil {
+			return zero, apperrors.Invalid(err.Error())
+		}
+		return response.OK(CatalogPreviewResponse{
+			Driver:  shared.NormalizeDriver(request.Driver),
+			SQL:     sqlText,
+			Changed: changed,
+			Note:    note,
+		}), nil
+	default:
+		return zero, apperrors.Invalid("预览方式无效")
 	}
-	return response.OK(CatalogPreviewResponse{Driver: shared.NormalizeDriver(request.Driver), SQL: sqlText}), nil
 }
 
 func (r *Resource) Apply(ctx context.Context, request *CatalogApplyRequest) (response.Response[CatalogApplyResponse], error) {
@@ -134,6 +161,7 @@ func (r *Resource) Apply(ctx context.Context, request *CatalogApplyRequest) (res
 		ReadOnly:      false,
 		MaxRows:       20,
 		MaxStatements: 300,
+		SQLiteSchema:  shared.NormalizeDriver(target.Driver) == "sqlite",
 	})
 	if err != nil {
 		return zero, apperrors.Business(10002, apperrors.KindInvalid, shared.PublicError("执行对象语句失败", "", err), err)
@@ -150,10 +178,11 @@ func (r *Resource) Apply(ctx context.Context, request *CatalogApplyRequest) (res
 	}), nil
 }
 
-func draftFrom(request *CatalogPreviewRequest) shared.ObjectDraft {
-	columns := make([]shared.ColumnDraft, 0, len(request.Columns))
-	for _, column := range request.Columns {
+func columnDrafts(items []CatalogColumnDraft) []shared.ColumnDraft {
+	columns := make([]shared.ColumnDraft, 0, len(items))
+	for _, column := range items {
 		columns = append(columns, shared.ColumnDraft{
+			Origin:   column.Origin,
 			Name:     column.Name,
 			Type:     column.Type,
 			Nullable: column.Nullable,
@@ -163,6 +192,11 @@ func draftFrom(request *CatalogPreviewRequest) shared.ObjectDraft {
 			Comment:  column.Comment,
 		})
 	}
+	return columns
+}
+
+func draftFrom(request *CatalogPreviewRequest) shared.ObjectDraft {
+	columns := columnDrafts(request.Columns)
 	params := make([]shared.ParamDraft, 0, len(request.Params))
 	for _, param := range request.Params {
 		params = append(params, shared.ParamDraft{Name: param.Name, Type: param.Type, Mode: param.Mode})
