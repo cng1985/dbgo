@@ -138,7 +138,7 @@ func (r *Repository) List(ctx context.Context, ownerID int64, ids []int64) ([]Sn
 		query = query.Where("id in ?", ids)
 	}
 	var entities []Snippet
-	if err := query.Limit(500).Find(&entities).Error; err != nil {
+	if err := query.Limit(maxOwnedSnippets).Find(&entities).Error; err != nil {
 		return nil, err
 	}
 	return entities, nil

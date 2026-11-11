@@ -119,6 +119,34 @@ func TestFormatDefaultKeepsExpression(t *testing.T) {
 	if !strings.Contains(server, "DEFAULT (N'杭州')") {
 		t.Fatalf("应保留 SQL Server 默认值: %s", server)
 	}
+	literal, err := RenderObject(ObjectDraft{
+		Driver: "mysql",
+		Kind:   "table",
+		Name:   "city",
+		Columns: []ColumnDraft{{
+			Name: "name", Type: "varchar(40)", Default: "hello(world)",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(literal, "DEFAULT 'hello(world)'") {
+		t.Fatalf("带括号的字面默认值应加引号: %s", literal)
+	}
+	cast, err := RenderObject(ObjectDraft{
+		Driver: "mysql",
+		Kind:   "table",
+		Name:   "city",
+		Columns: []ColumnDraft{{
+			Name: "name", Type: "varchar(40)", Default: "hello::world",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cast, "DEFAULT 'hello::world'") {
+		t.Fatalf("普通文本里的冒号应作为字面量: %s", cast)
+	}
 }
 
 func TestSQLiteRejectsRoutines(t *testing.T) {

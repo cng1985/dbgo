@@ -202,8 +202,21 @@ async function optimize(payload) {
 
 async function loadSnippets() {
   try {
-    const page = await api('/api/snippet/search', { page: 1, page_size: 200, sort: 'name', direction: 'asc' })
-    snippets.value = page.data || []
+    const all = []
+    let page = 1
+    for (;;) {
+      const result = await api('/api/snippet/search', { page, page_size: 200, sort: 'name', direction: 'asc' })
+      const batch = result.data || []
+      all.push(...batch)
+      if (!batch.length || all.length >= (result.total || 0)) {
+        break
+      }
+      page += 1
+      if (page > 5) {
+        break
+      }
+    }
+    snippets.value = all
   } catch (err) {
     error.value = err.message
   }

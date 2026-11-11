@@ -40,7 +40,7 @@ func (r *Resource) Create(ctx context.Context, request *SnippetRequest) (respons
 	if err != nil {
 		return zero, err
 	}
-	if total >= 500 {
+	if total >= maxOwnedSnippets {
 		return zero, apperrors.Invalid("代码段已有 500 个，请先清理后再新建")
 	}
 	now := time.Now().UTC()
@@ -137,7 +137,7 @@ func (r *Resource) Export(ctx context.Context, request *SnippetExportRequest) (r
 		if err != nil {
 			return zero, err
 		}
-		if total > 500 {
+		if total > maxOwnedSnippets {
 			return zero, apperrors.Invalid("代码段超过 500 个，请按主键分批导出")
 		}
 	}
@@ -180,8 +180,8 @@ func (r *Resource) Import(ctx context.Context, request *SnippetImportRequest) (r
 	if len(request.Document.Snippets) == 0 {
 		return zero, apperrors.Invalid("代码段文件里没有代码段")
 	}
-	if len(request.Document.Snippets) > 200 {
-		return zero, apperrors.Invalid("一次最多导入 200 个代码段")
+	if len(request.Document.Snippets) > maxOwnedSnippets {
+		return zero, apperrors.Invalid("一次最多导入 500 个代码段")
 	}
 	mode := strings.ToLower(strings.TrimSpace(request.OnConflict))
 	if mode == "" {
@@ -196,7 +196,7 @@ func (r *Resource) Import(ctx context.Context, request *SnippetImportRequest) (r
 	if err != nil {
 		return zero, err
 	}
-	if int64(len(existing)) >= 500 {
+	if int64(len(existing)) >= maxOwnedSnippets {
 		return zero, apperrors.Invalid("代码段已有 500 个，请先清理后再导入")
 	}
 	used := map[string]bool{}
@@ -246,7 +246,7 @@ func (r *Resource) Import(ctx context.Context, request *SnippetImportRequest) (r
 	if len(entities) == 0 {
 		return response.OK(SnippetImportResponse{Created: 0, Skipped: skipped, Items: []SnippetSimple{}}), nil
 	}
-	if int64(len(existing)+len(entities)) > 500 {
+	if int64(len(existing)+len(entities)) > maxOwnedSnippets {
 		return zero, apperrors.Invalid("导入后代码段会超过 500 个")
 	}
 	if err := r.repo.CreateMany(ctx, entities); err != nil {
@@ -315,7 +315,7 @@ func requestID(request *SnippetRequest) int64 {
 }
 
 func parseIDs(raw []string) ([]int64, error) {
-	if len(raw) > 500 {
+	if len(raw) > maxOwnedSnippets {
 		return nil, apperrors.Invalid("一次最多导出 500 个代码段")
 	}
 	ids := make([]int64, 0, len(raw))

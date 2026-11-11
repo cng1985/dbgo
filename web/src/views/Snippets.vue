@@ -1,9 +1,11 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { api, driverLabel, drivers, formatTime } from '../api'
 
 const rows = ref([])
 const total = ref(0)
+const page = ref(1)
+const pageSize = 50
 const keyword = ref('')
 const error = ref('')
 const notice = ref('')
@@ -17,17 +19,34 @@ function blank() {
   return { id: '', name: '', description: '', body: '', driver: '', version: 0 }
 }
 
+const pageCount = computed(() => Math.max(1, Math.ceil((total.value || 0) / pageSize)))
+
 async function load() {
   error.value = ''
-  const page = await api('/api/snippet/search', {
+  const result = await api('/api/snippet/search', {
     keyword: keyword.value,
-    page: 1,
-    page_size: 50,
+    page: page.value,
+    page_size: pageSize,
     sort: 'name',
     direction: 'asc'
   })
-  rows.value = page.data || []
-  total.value = page.total
+  const data = result.data || []
+  if (!data.length && page.value > 1) {
+    page.value -= 1
+    return load()
+  }
+  rows.value = data
+  total.value = result.total || 0
+}
+
+function search() {
+  page.value = 1
+  return load()
+}
+
+function go(next) {
+  page.value = next
+  return load()
 }
 
 function openCreate() {
@@ -147,8 +166,8 @@ onMounted(load)
     <p v-if="notice" class="notice ok">{{ notice }}</p>
     <div class="toolbar">
       <div class="row grow">
-        <input v-model="keyword" class="grow" placeholder="按名称或说明搜索" @keyup.enter="load" />
-        <button class="btn" type="button" @click="load">搜索</button>
+        <input v-model="keyword" class="grow" placeholder="按名称或说明搜索" @keyup.enter="search" />
+        <button class="btn" type="button" @click="search">搜索</button>
       </div>
       <select v-model="conflict" aria-label="重名策略">
         <option value="rename">重名则改名</option>
@@ -181,7 +200,11 @@ onMounted(load)
         </tbody>
       </table>
     </div>
-    <p class="muted">共 {{ total }} 条。每个账号只能看到自己的代码段。</p>
+    <div class="row">
+      <p class="muted grow">共 {{ total }} 条，第 {{ page }} / {{ pageCount }} 页。每个账号只能看到自己的代码段。</p>
+      <button class="btn" type="button" :disabled="page <= 1" @click="go(page - 1)">上一页</button>
+      <button class="btn" type="button" :disabled="page >= pageCount" @click="go(page + 1)">下一页</button>
+    </div>
     <dialog ref="dialog" class="modal">
       <form class="stack" @submit.prevent="save">
         <h2>{{ form.id ? '编辑代码段' : '新建代码段' }}</h2>

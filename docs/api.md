@@ -127,7 +127,7 @@ SQL 备份最多 200 张表，并受 `backup.max_rows` 与 `backup.max_bytes` �
 | `POST /api/snippet/search` | 分页。列表不含内容 |
 | `POST /api/snippet/delete` | 删除 |
 | `POST /api/snippet/export` | `ids` 为空时导出全部。文件格式是 `dbgo-snippets` 版本 1 |
-| `POST /api/snippet/import` | `document` 与 `on_conflict`。策略同连接导入，一次最多 200 个 |
+| `POST /api/snippet/import` | `document` 与 `on_conflict`。策略同连接导入，一次最多 500 个，与导出上限一致 |
 
 `driver` 为空表示不限数据库，否则是 `sqlite`、`mysql`、`postgres` 或 `sqlserver`。
 

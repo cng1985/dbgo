@@ -2,6 +2,8 @@ package snippet
 
 import "time"
 
+const maxOwnedSnippets = 500
+
 type SnippetRequest struct {
 	ID          int64  `json:"id,string"`
 	Name        string `json:"name"`

@@ -544,9 +544,6 @@ func formatDefault(driver, value string) (string, bool, error) {
 	if strings.ContainsAny(value, ";\n\r") || strings.Contains(value, "--") || strings.Contains(value, "/*") {
 		return "", false, fmt.Errorf("默认值包含不允许的字符")
 	}
-	if isRawDefault(value) {
-		return value, true, nil
-	}
 	upper := strings.ToUpper(value)
 	switch upper {
 	case "NULL", "CURRENT_TIMESTAMP", "CURRENT_DATE", "CURRENT_TIME":
@@ -563,15 +560,44 @@ func formatDefault(driver, value string) (string, bool, error) {
 	if isNumber(value) {
 		return value, true, nil
 	}
-	if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") && len(value) >= 2 {
-		inner := strings.ReplaceAll(value[1:len(value)-1], "''", "'")
-		return "'" + strings.ReplaceAll(inner, "'", "''") + "'", true, nil
+	if quoted, ok := normalizedStringLiteral(value); ok {
+		return quoted, true, nil
+	}
+	if isExpressionDefault(value) {
+		return value, true, nil
 	}
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'", true, nil
 }
 
-func isRawDefault(value string) bool {
-	if !strings.Contains(value, "(") && !strings.Contains(value, "::") {
+func normalizedStringLiteral(value string) (string, bool) {
+	if len(value) < 2 || value[0] != '\'' || value[len(value)-1] != '\'' {
+		return "", false
+	}
+	inner := value[1 : len(value)-1]
+	for i := 0; i < len(inner); i++ {
+		if inner[i] != '\'' {
+			continue
+		}
+		if i+1 >= len(inner) || inner[i+1] != '\'' {
+			return "", false
+		}
+		i++
+	}
+	return "'" + strings.ReplaceAll(strings.ReplaceAll(inner, "''", "'"), "'", "''") + "'", true
+}
+
+func isExpressionDefault(value string) bool {
+	if !safeDefaultText(value) {
+		return false
+	}
+	if wrappedExpression(value) || knownFunctionCall(value) || castExpression(value) {
+		return true
+	}
+	return false
+}
+
+func safeDefaultText(value string) bool {
+	if value == "" {
 		return false
 	}
 	for _, ch := range value {
@@ -581,6 +607,220 @@ func isRawDefault(value string) bool {
 		return false
 	}
 	return true
+}
+
+func wrappedExpression(value string) bool {
+	if len(value) < 3 || value[0] != '(' || value[len(value)-1] != ')' {
+		return false
+	}
+	depth := 0
+	inQuote := false
+	for i := 0; i < len(value); i++ {
+		ch := value[i]
+		if inQuote {
+			if ch == '\'' {
+				if i+1 < len(value) && value[i+1] == '\'' {
+					i++
+					continue
+				}
+				inQuote = false
+			}
+			continue
+		}
+		switch ch {
+		case '\'':
+			inQuote = true
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth < 0 {
+				return false
+			}
+			if depth == 0 && i != len(value)-1 {
+				return false
+			}
+		}
+	}
+	return depth == 0 && !inQuote
+}
+
+func knownFunctionCall(value string) bool {
+	open := strings.IndexByte(value, '(')
+	if open <= 0 {
+		return false
+	}
+	name, ok := functionName(value[:open])
+	if !ok || !knownDefaultFunc(name) {
+		return false
+	}
+	closeAt := matchingParen(value, open)
+	if closeAt < 0 {
+		return false
+	}
+	tail := strings.TrimSpace(value[closeAt+1:])
+	if tail == "" {
+		return true
+	}
+	return strings.HasPrefix(tail, "::") && castExpression(value)
+}
+
+func knownDefaultFunc(name string) bool {
+	switch name {
+	case "nextval", "currval", "gen_random_uuid", "clock_timestamp", "statement_timestamp",
+		"transaction_timestamp", "now", "localtimestamp", "uuid", "uuid_to_bin", "sysdate",
+		"unix_timestamp", "current_timestamp", "current_date", "current_time",
+		"getdate", "getutcdate", "sysdatetime", "sysutcdatetime", "sysdatetimeoffset",
+		"newid", "newsequentialid", "datetime", "date", "time", "strftime", "julianday", "unixepoch":
+		return true
+	default:
+		return false
+	}
+}
+
+func functionName(head string) (string, bool) {
+	head = strings.TrimSpace(head)
+	name := head
+	if dot := strings.LastIndex(head, "."); dot >= 0 {
+		if !simpleIdent(strings.TrimSpace(head[:dot])) {
+			return "", false
+		}
+		name = strings.TrimSpace(head[dot+1:])
+	}
+	if !simpleIdent(name) {
+		return "", false
+	}
+	return strings.ToLower(name), true
+}
+
+func simpleIdent(value string) bool {
+	if value == "" {
+		return false
+	}
+	for i, ch := range value {
+		if ch == '_' || unicode.IsLetter(ch) || (i > 0 && unicode.IsDigit(ch)) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func matchingParen(value string, open int) int {
+	depth := 0
+	inQuote := false
+	for i := open; i < len(value); i++ {
+		ch := value[i]
+		if inQuote {
+			if ch == '\'' {
+				if i+1 < len(value) && value[i+1] == '\'' {
+					i++
+					continue
+				}
+				inQuote = false
+			}
+			continue
+		}
+		switch ch {
+		case '\'':
+			inQuote = true
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+			if depth < 0 {
+				return -1
+			}
+		}
+	}
+	return -1
+}
+
+func castExpression(value string) bool {
+	parts, ok := splitCast(value)
+	if !ok || len(parts) < 2 {
+		return false
+	}
+	if !castHead(strings.TrimSpace(parts[0])) {
+		return false
+	}
+	for _, part := range parts[1:] {
+		if !castType(strings.TrimSpace(part)) {
+			return false
+		}
+	}
+	return true
+}
+
+func castHead(head string) bool {
+	if head == "" {
+		return false
+	}
+	if _, ok := normalizedStringLiteral(head); ok {
+		return true
+	}
+	if isNumber(head) || wrappedExpression(head) || knownFunctionCall(head) {
+		return true
+	}
+	return false
+}
+
+func castType(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, ch := range value {
+		if unicode.IsLetter(ch) || unicode.IsDigit(ch) || strings.ContainsRune(" _(),.[]", ch) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func splitCast(value string) ([]string, bool) {
+	parts := []string{}
+	start := 0
+	depth := 0
+	inQuote := false
+	for i := 0; i < len(value); i++ {
+		ch := value[i]
+		if inQuote {
+			if ch == '\'' {
+				if i+1 < len(value) && value[i+1] == '\'' {
+					i++
+					continue
+				}
+				inQuote = false
+			}
+			continue
+		}
+		switch ch {
+		case '\'':
+			inQuote = true
+		case '(':
+			depth++
+		case ')':
+			if depth == 0 {
+				return nil, false
+			}
+			depth--
+		case ':':
+			if depth == 0 && i+1 < len(value) && value[i+1] == ':' {
+				parts = append(parts, value[start:i])
+				i++
+				start = i + 1
+			}
+		}
+	}
+	if inQuote || depth != 0 {
+		return nil, false
+	}
+	parts = append(parts, value[start:])
+	return parts, true
 }
 
 func isNumber(value string) bool {
