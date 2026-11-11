@@ -161,6 +161,7 @@ func (r *Resource) Apply(ctx context.Context, request *CatalogApplyRequest) (res
 		ReadOnly:      false,
 		MaxRows:       20,
 		MaxStatements: 300,
+		SQLiteSchema:  shared.NormalizeDriver(target.Driver) == "sqlite",
 	})
 	if err != nil {
 		return zero, apperrors.Business(10002, apperrors.KindInvalid, shared.PublicError("执行对象语句失败", "", err), err)

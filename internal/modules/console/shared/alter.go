@@ -86,7 +86,7 @@ func RenderTableAlter(spec TableAlter) (string, bool, string, error) {
 	case "sqlite":
 		if sqliteNeedsRebuild(plan) {
 			sqlText, err = sqliteRebuild(spec, plan)
-			note = "SQLite 会重建这张表，并拷贝能对上的字段。原有索引和触发器不会带到新表。"
+			note = "SQLite 会在一个事务里重建这张表，并拷贝能对上的字段。原有索引、触发器和这张表上的外键不会带到新表。"
 		} else {
 			sqlText, err = emitIncremental(spec, plan)
 		}
@@ -295,15 +295,18 @@ func sqliteAddOK(column ColumnDraft) bool {
 	if strings.Contains(column.Default, "(") {
 		return false
 	}
-	if notNull(column) {
-		def, ok, err := formatDefault("sqlite", column.Default)
+	def, ok, err := formatDefault("sqlite", column.Default)
+	if strings.TrimSpace(column.Default) != "" {
 		if err != nil || !ok {
 			return false
 		}
 		switch strings.ToUpper(def) {
-		case "CURRENT_TIMESTAMP", "CURRENT_DATE", "CURRENT_TIME", "NULL":
+		case "CURRENT_TIMESTAMP", "CURRENT_DATE", "CURRENT_TIME":
 			return false
 		}
+	}
+	if notNull(column) && (!ok || strings.EqualFold(def, "NULL")) {
+		return false
 	}
 	return true
 }

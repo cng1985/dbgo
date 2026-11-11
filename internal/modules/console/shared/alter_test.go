@@ -94,6 +94,17 @@ func TestRenderTableAlterSQLiteAddRenameAndRebuild(t *testing.T) {
 	if err != nil || renamedTable != `ALTER TABLE "city" RENAME TO "town"` {
 		t.Fatalf("应生成表重命名: %v %s", err, renamedTable)
 	}
+	temporal, _, _, err := RenderTableAlter(TableAlter{
+		Driver: "sqlite", BaselineName: "city", Name: "city",
+		Baseline: []ColumnDraft{{Name: "id", Type: "integer", Primary: true}},
+		Columns: []ColumnDraft{
+			{Name: "id", Type: "integer", Primary: true},
+			{Name: "seen", Type: "text", Nullable: true, Default: "CURRENT_TIMESTAMP"},
+		},
+	})
+	if err != nil || strings.Contains(temporal, "ADD COLUMN") || !strings.Contains(temporal, "INSERT INTO") {
+		t.Fatalf("可空的时间默认值也应重建表: %v %s", err, temporal)
+	}
 }
 
 func TestRenderTableAlterSwapsNames(t *testing.T) {
@@ -257,6 +268,117 @@ func applyAlter(ctx context.Context, db *sql.DB, spec TableAlter) error {
 	if !changed {
 		return nil
 	}
-	_, err = Execute(ctx, db, "sqlite", sqlText, ExecOptions{MaxRows: 10, MaxStatements: 30})
+	_, err = Execute(ctx, db, "sqlite", sqlText, ExecOptions{MaxRows: 10, MaxStatements: 30, SQLiteSchema: true})
 	return err
+}
+
+func TestSQLiteSchemaRollsBackFailedRebuild(t *testing.T) {
+	db := openSQLite(t)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `create table city (id integer primary key, name text)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `insert into city (id, name) values (1, null)`); err != nil {
+		t.Fatal(err)
+	}
+	err := applyAlter(ctx, db, TableAlter{
+		Driver: "sqlite", BaselineName: "city", Name: "city",
+		Baseline: []ColumnDraft{
+			{Name: "id", Type: "integer", Primary: true},
+			{Name: "name", Type: "text", Nullable: true},
+		},
+		Columns: []ColumnDraft{
+			{Name: "id", Type: "integer", Primary: true},
+			{Name: "name", Type: "text", Nullable: false},
+		},
+	})
+	if err == nil {
+		t.Fatal("把含空值的列改成非空应失败")
+	}
+	var leftover int
+	if err := db.QueryRowContext(ctx, `select count(*) from sqlite_master where name like '__dbgo_new%'`).Scan(&leftover); err != nil || leftover != 0 {
+		t.Fatalf("失败后不应留下临时表: %v %d", err, leftover)
+	}
+	var name sql.NullString
+	if err := db.QueryRowContext(ctx, `select name from city where id = 1`).Scan(&name); err != nil || name.Valid {
+		t.Fatalf("失败后原表应保持原样: %v %#v", err, name)
+	}
+	if err := applyAlter(ctx, db, TableAlter{
+		Driver: "sqlite", BaselineName: "city", Name: "city",
+		Baseline: []ColumnDraft{
+			{Name: "id", Type: "integer", Primary: true},
+			{Name: "name", Type: "text", Nullable: true},
+		},
+		Columns: []ColumnDraft{
+			{Name: "id", Type: "integer", Primary: true},
+			{Name: "name", Type: "text", Nullable: true, Comment: "名称"},
+		},
+	}); err != nil {
+		t.Fatalf("回滚后应能再次更新: %v", err)
+	}
+	if !sqliteForeignKeysOn(t, db) {
+		t.Fatal("执行结束后应恢复外键强制")
+	}
+}
+
+func TestSQLiteSchemaKeepsReferencingRows(t *testing.T) {
+	db := openSQLite(t)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `create table parent (id integer primary key, name text not null);
+		create table child (id integer primary key, parent_id integer not null references parent(id) on delete cascade);
+		insert into parent (id, name) values (1, '杭州');
+		insert into child (id, parent_id) values (1, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyAlter(ctx, db, TableAlter{
+		Driver: "sqlite", BaselineName: "parent", Name: "parent",
+		Baseline: []ColumnDraft{
+			{Name: "id", Type: "integer", Primary: true},
+			{Name: "name", Type: "text", Nullable: false},
+		},
+		Columns: []ColumnDraft{
+			{Name: "id", Type: "integer", Primary: true},
+			{Name: "name", Type: "text", Nullable: false, Comment: "地名"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var children int
+	if err := db.QueryRowContext(ctx, `select count(*) from child`).Scan(&children); err != nil || children != 1 {
+		t.Fatalf("重建父表不应级联删除子表: %v %d", err, children)
+	}
+	_, err := Execute(ctx, db, "sqlite", `drop table parent`, ExecOptions{MaxStatements: 5, SQLiteSchema: true})
+	if err == nil || !strings.Contains(err.Error(), "外键") {
+		t.Fatalf("破坏外键的语句应回滚: %v", err)
+	}
+	var parents int
+	if err := db.QueryRowContext(ctx, `select count(*) from parent`).Scan(&parents); err != nil || parents != 1 {
+		t.Fatalf("回滚后父表应仍在: %v %d", err, parents)
+	}
+	if err := db.QueryRowContext(ctx, `select count(*) from child`).Scan(&children); err != nil || children != 1 {
+		t.Fatalf("回滚后子表行应仍在: %v %d", err, children)
+	}
+	if !sqliteForeignKeysOn(t, db) {
+		t.Fatal("失败后也应恢复外键强制")
+	}
+}
+
+func openSQLite(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "alter.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(1)
+	return db
+}
+
+func sqliteForeignKeysOn(t *testing.T, db *sql.DB) bool {
+	t.Helper()
+	var flag int
+	if err := db.QueryRow(`PRAGMA foreign_keys`).Scan(&flag); err != nil {
+		t.Fatal(err)
+	}
+	return flag == 1
 }
