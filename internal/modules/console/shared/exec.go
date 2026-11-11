@@ -31,8 +31,35 @@ type ExecOptions struct {
 	MaxRows        int
 	MaxStatements  int
 	UseTransaction bool
+	// Schema 是查询页选中的数据库或模式。空字符串表示沿用连接自己的默认库。
+	Schema string
 	// SQLiteSchema 在同一条连接上执行，并包进事务。执行期间关闭外键强制，避免重建表时级联删除引用行；提交前若出现新的外键错误则回滚。
 	SQLiteSchema bool
+}
+
+// SchemaSwitchSQL 返回在当前会话里切到选中数据库的语句。
+// MySQL 的目录项是其他数据库，用 USE。
+// PostgreSQL 的目录项是模式，用 search_path，未写库名的表才会落到选中的模式。
+// SQL Server 列出的是模式而不是数据库，USE 会按数据库名查找。
+// SQLite 没有切换当前库的语句，未写库名的对象仍在 main。
+func SchemaSwitchSQL(driver, schema string) (string, error) {
+	schema = strings.TrimSpace(schema)
+	if schema == "" {
+		return "", nil
+	}
+	driver = NormalizeDriver(driver)
+	quoted, err := QuoteIdent(driver, schema)
+	if err != nil {
+		return "", fmt.Errorf("数据库名无效")
+	}
+	switch driver {
+	case "mysql":
+		return "use " + quoted, nil
+	case "postgres":
+		return "set search_path to " + quoted, nil
+	default:
+		return "", nil
+	}
 }
 
 func Execute(ctx context.Context, db *sql.DB, driver, script string, options ExecOptions) ([]Result, error) {
@@ -63,9 +90,39 @@ func Execute(ctx context.Context, db *sql.DB, driver, script string, options Exe
 	if options.SQLiteSchema && NormalizeDriver(driver) == "sqlite" {
 		return executeSQLiteSchema(ctx, db, statements, options)
 	}
+	switchSQL, err := SchemaSwitchSQL(driver, options.Schema)
+	if err != nil {
+		return nil, err
+	}
+	if switchSQL != "" {
+		return executeSwitched(ctx, db, driver, statements, options, switchSQL)
+	}
 	if options.UseTransaction && driver != "mysql" {
 		return executeTransactional(ctx, db, driver, statements, options)
 	}
+	return executeSequential(ctx, db, driver, statements, options)
+}
+
+type beginner interface {
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
+}
+
+func executeSwitched(ctx context.Context, db *sql.DB, driver string, statements []string, options ExecOptions, switchSQL string) ([]Result, error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, switchSQL); err != nil {
+		return nil, fmt.Errorf("切换到选中的数据库失败: %w", err)
+	}
+	if options.UseTransaction && driver != "mysql" {
+		return executeTransactional(ctx, conn, driver, statements, options)
+	}
+	return executeSequential(ctx, conn, driver, statements, options)
+}
+
+func executeSequential(ctx context.Context, db queryer, driver string, statements []string, options ExecOptions) ([]Result, error) {
 	results := make([]Result, 0, len(statements))
 	for _, statement := range statements {
 		batch, err := runStatement(ctx, db, driver, statement, options.MaxRows)
@@ -77,7 +134,7 @@ func Execute(ctx context.Context, db *sql.DB, driver, script string, options Exe
 	return results, nil
 }
 
-func executeTransactional(ctx context.Context, db *sql.DB, driver string, statements []string, options ExecOptions) ([]Result, error) {
+func executeTransactional(ctx context.Context, db beginner, driver string, statements []string, options ExecOptions) ([]Result, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err

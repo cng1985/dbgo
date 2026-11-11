@@ -5,6 +5,7 @@ import "time"
 type QueryExecuteRequest struct {
 	ConnectionID   int64  `json:"connection_id,string"`
 	SQL            string `json:"sql"`
+	Schema         string `json:"schema"`
 	ReadOnly       *bool  `json:"read_only"`
 	MaxRows        int    `json:"max_rows"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
@@ -42,6 +43,7 @@ type QuerySimple struct {
 	ID             int64     `json:"id,string"`
 	ConnectionID   int64     `json:"connection_id,string"`
 	ConnectionName string    `json:"connection_name"`
+	Schema         string    `json:"schema"`
 	Status         string    `json:"status"`
 	RowCount       int64     `json:"row_count"`
 	DurationMS     int64     `json:"duration_ms"`
@@ -55,6 +57,7 @@ type QueryResponse struct {
 	ConnectionID   int64            `json:"connection_id,string"`
 	ConnectionName string           `json:"connection_name"`
 	SQL            string           `json:"sql"`
+	Schema         string           `json:"schema"`
 	Status         string           `json:"status"`
 	ReadOnly       bool             `json:"read_only"`
 	DurationMS     int64            `json:"duration_ms"`

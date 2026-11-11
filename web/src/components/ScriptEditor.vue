@@ -139,6 +139,7 @@ async function run(sqlText) {
     result.value = (await api('/api/query/execute', {
       connection_id: props.tab.connectionId,
       sql,
+      schema: props.tab.schema || '',
       read_only: props.tab.readOnly,
       max_rows: Number(props.tab.maxRows || 100)
     })).data
@@ -163,6 +164,7 @@ async function openHistory(item) {
     const one = (await api('/api/query/one', { id: item.id })).data
     props.tab.sql = one.sql
     props.tab.readOnly = one.read_only
+    props.tab.schema = one.schema || ''
     props.tab.connectionId = one.connection_id
     error.value = one.error_message || ''
     panel.value = 'result'
@@ -396,6 +398,7 @@ async function saveRow() {
     const data = (await api('/api/query/execute', {
       connection_id: props.tab.connectionId,
       sql,
+      schema: current.schema || props.tab.schema || '',
       read_only: false,
       max_rows: 1
     })).data
