@@ -448,9 +448,29 @@ td.wrap, .wrap { white-space: normal; }
   padding: 0 12px;
 }
 .result-tabs button.on { background: #fff; box-shadow: inset 0 -2px 0 var(--accent); }
+.result-tabs button .count {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font-size: 11px;
+}
 .result-summary { padding: 0 10px; color: var(--muted); }
 .result-tabs .icon-btn { margin-left: auto; margin-right: 4px; }
 .result-body { flex: 1; overflow: auto; }
+.output-console {
+  margin: 0;
+  min-height: 100%;
+  padding: 10px 12px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .statement { display: grid; gap: 6px; padding: 8px; }
 .result-grid { max-height: none; border-left: 0; border-right: 0; border-radius: 0; }
 .result-grid th { position: sticky; top: 0; z-index: 1; }
