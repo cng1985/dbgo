@@ -115,7 +115,8 @@ func (r *Repository) Search(ctx context.Context, search *MigrationSearch) (respo
 		return result, err
 	}
 	makeQuery := func() *gorm.DB {
-		query := r.db.WithContext(ctx).Model(&DataMigration{})
+		query := r.db.WithContext(ctx).Model(&DataMigration{}).
+			Where("connection_id in (select id from db_connection where created_by = ?)", search.OwnerID)
 		if search.ConnectionID > 0 {
 			query = query.Where("connection_id = ?", search.ConnectionID)
 		}

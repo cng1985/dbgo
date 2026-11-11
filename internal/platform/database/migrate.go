@@ -273,7 +273,13 @@ func execArgs(ctx context.Context, conn *sql.Conn, driver, query string, args ..
 }
 
 func rewritePlaceholders(driver, query string) string {
-	if driver != "postgres" {
+	prefix := ""
+	switch driver {
+	case "postgres":
+		prefix = "$"
+	case "sqlserver":
+		prefix = "@p"
+	default:
 		return query
 	}
 	var builder strings.Builder
@@ -284,7 +290,7 @@ func rewritePlaceholders(driver, query string) string {
 			inQuote = !inQuote
 		}
 		if ch == '?' && !inQuote {
-			builder.WriteByte('$')
+			builder.WriteString(prefix)
 			builder.WriteString(strconv.Itoa(number))
 			number++
 			continue

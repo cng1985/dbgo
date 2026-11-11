@@ -6,10 +6,20 @@ import (
 	"unicode"
 )
 
+// RewritePlaceholders 把问号改成驱动真正接受的参数名。
+// database/sql 的 sqlserver 驱动不会处理问号，SQL Server 会报“?”附近有语法错误。
 func RewritePlaceholders(driver, query string) string {
-	if driver != "postgres" {
+	switch NormalizeDriver(driver) {
+	case "postgres":
+		return numberPlaceholders(query, "$")
+	case "sqlserver":
+		return numberPlaceholders(query, "@p")
+	default:
 		return query
 	}
+}
+
+func numberPlaceholders(query, prefix string) string {
 	var builder strings.Builder
 	number := 1
 	inQuote := false
@@ -18,7 +28,7 @@ func RewritePlaceholders(driver, query string) string {
 			inQuote = !inQuote
 		}
 		if ch == '?' && !inQuote {
-			builder.WriteByte('$')
+			builder.WriteString(prefix)
 			builder.WriteString(strconv.Itoa(number))
 			number++
 			continue

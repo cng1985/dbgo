@@ -71,6 +71,10 @@ func TestSuggestRemoteQueryPlaceholders(t *testing.T) {
 	if !strings.Contains(mysql, "?") || strings.Contains(mysql, "$1") {
 		t.Fatalf("mysql 应保留问号占位符: %s", mysql)
 	}
+	server := suggestRemoteQuery("sqlserver")
+	if !strings.Contains(server, "table_schema = @p1") || strings.Contains(server, "?") {
+		t.Fatalf("sqlserver 结构提示应使用 @p1: %s", server)
+	}
 }
 
 func openSuggestDB(t *testing.T) *sql.DB {

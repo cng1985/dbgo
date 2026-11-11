@@ -323,8 +323,46 @@ func TestConsoleFlow(t *testing.T) {
 		t.Fatalf("注册结果不正确: %#v", registered)
 	}
 	memberOverview := post(t, member, base+"/api/overview/one", map[string]any{})
-	if memberOverview.Code != 200 {
-		t.Fatalf("注册用户应能使用共享控制台: %#v", memberOverview)
+	recent, _ := memberOverview.Data["recent_queries"].([]any)
+	if memberOverview.Code != 200 || memberOverview.Data["connection_count"] != "0" || len(recent) != 0 {
+		t.Fatalf("注册用户不应看到别人的连接和查询: %#v", memberOverview)
+	}
+	hidden := post(t, member, base+"/api/connection/search", map[string]any{"page": 1, "page_size": 50})
+	if hidden.Raw["total"] != float64(0) {
+		t.Fatalf("注册用户的连接列表应为空: %#v", hidden.Raw)
+	}
+	deniedOne := post(t, member, base+"/api/connection/one", map[string]any{"id": connectionID})
+	if deniedOne.Code != 404 {
+		t.Fatalf("不能读取别人的连接: %#v", deniedOne)
+	}
+	deniedSQL := post(t, member, base+"/api/query/execute", map[string]any{"connection_id": connectionID, "sql": "select 1"})
+	if deniedSQL.Code != 404 {
+		t.Fatalf("不能在别人的连接上执行 SQL: %#v", deniedSQL)
+	}
+	deniedMigration := post(t, member, base+"/api/migration/search", map[string]any{"connection_id": connectionID, "page": 1, "page_size": 20})
+	if deniedMigration.Raw["total"] != float64(0) {
+		t.Fatalf("不能看到别人的迁移: %#v", deniedMigration.Raw)
+	}
+	own := post(t, member, base+"/api/connection/create", map[string]any{
+		"name":        "本地示例",
+		"driver":      "sqlite",
+		"sqlite_path": "member.db",
+	})
+	if own.Code != 200 {
+		t.Fatalf("另一用户应能创建同名连接: %#v", own)
+	}
+	ownID, _ := own.Data["id"].(string)
+	memberList := post(t, member, base+"/api/connection/search", map[string]any{"page": 1, "page_size": 50})
+	memberItems, _ := memberList.Raw["data"].([]any)
+	if memberList.Raw["total"] != float64(1) || len(memberItems) != 1 {
+		t.Fatalf("注册用户应只看到自己的连接: %#v", memberList.Raw)
+	}
+	adminList := post(t, client, base+"/api/connection/search", map[string]any{"page": 1, "page_size": 100})
+	for _, item := range adminList.Raw["data"].([]any) {
+		row, _ := item.(map[string]any)
+		if row["id"] == ownID {
+			t.Fatalf("管理员不应看到成员的连接: %#v", row)
+		}
 	}
 	profile := post(t, member, base+"/api/auth/profile/update", map[string]any{
 		"display_name": "成员甲",

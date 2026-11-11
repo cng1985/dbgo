@@ -36,7 +36,7 @@ configs
 
 会话放在 HttpOnly Cookie `dbgo_session`。所有 `/api` 请求还要带 `X-DBGo-Request: 1`，并在提供 Origin 时与 Host 一致。登录口令使用 bcrypt。会话表只保存令牌的 SHA256。
 
-上下文里的 Scope 含操作者、请求号和角色。`admin` 与注册产生的 `member` 都能使用控制台。连接、模型配置和目标库是共享的，不按用户隔离。这是团队控制台的明确边界，不是按租户做的数据权限。
+上下文里的 Scope 含操作者、请求号和角色。`admin` 与注册产生的 `member` 都能使用控制台。连接按 `created_by` 隔离：列表、打开、修改、删除、导入导出，以及这条连接上的查询、迁移和备份，都只对创建人可见。两人可以使用相同的连接名称。模型配置仍然共享。
 
 连接口令用 AES-GCM 加密。密钥来自 `APP_AUTH_SECRET`，否则使用数据目录里自动生成的 `auth.key`。
 

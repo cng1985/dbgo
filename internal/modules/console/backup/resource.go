@@ -146,18 +146,20 @@ func (r *Resource) writeBackup(ctx context.Context, connectionID int64, driver, 
 
 func (r *Resource) One(ctx context.Context, request *BackupRequest) (response.Response[BackupResponse], error) {
 	var zero response.Response[BackupResponse]
-	if _, err := r.authorize(ctx, "backup:read"); err != nil {
+	scope, err := r.authorize(ctx, "backup:read")
+	if err != nil {
 		return zero, err
 	}
 	if request == nil || request.ID <= 0 {
 		return zero, apperrors.Invalid("主键无效")
 	}
-	return r.repo.One(ctx, request)
+	return r.repo.One(ctx, scope.ActorID, request)
 }
 
 func (r *Resource) Search(ctx context.Context, search *BackupSearch) (response.PageResponse[BackupSimple], error) {
 	var zero response.PageResponse[BackupSimple]
-	if _, err := r.authorize(ctx, "backup:read"); err != nil {
+	scope, err := r.authorize(ctx, "backup:read")
+	if err != nil {
 		return zero, err
 	}
 	if search == nil {
@@ -172,22 +174,24 @@ func (r *Resource) Search(ctx context.Context, search *BackupSearch) (response.P
 	}
 	search.Page = page
 	search.PageSize = pageSize
+	search.OwnerID = scope.ActorID
 	return r.repo.Search(ctx, search)
 }
 
 func (r *Resource) Delete(ctx context.Context, request *BackupRequest) (response.Response[BackupResponse], error) {
 	var zero response.Response[BackupResponse]
-	if _, err := r.authorize(ctx, "backup:write"); err != nil {
+	scope, err := r.authorize(ctx, "backup:write")
+	if err != nil {
 		return zero, err
 	}
 	if request == nil || request.ID <= 0 {
 		return zero, apperrors.Invalid("主键无效")
 	}
-	current, err := r.repo.find(ctx, request.ID)
+	current, err := r.repo.find(ctx, scope.ActorID, request.ID)
 	if err != nil {
 		return zero, err
 	}
-	result, err := r.repo.Delete(ctx, request)
+	result, err := r.repo.Delete(ctx, scope.ActorID, request)
 	if err != nil {
 		return zero, err
 	}
@@ -201,13 +205,14 @@ func (r *Resource) Delete(ctx context.Context, request *BackupRequest) (response
 
 func (r *Resource) Restore(ctx context.Context, request *BackupRequest) (response.Response[BackupResponse], error) {
 	var zero response.Response[BackupResponse]
-	if _, err := r.authorize(ctx, "backup:write"); err != nil {
+	scope, err := r.authorize(ctx, "backup:write")
+	if err != nil {
 		return zero, err
 	}
 	if request == nil || request.ID <= 0 {
 		return zero, apperrors.Invalid("主键无效")
 	}
-	current, err := r.repo.find(ctx, request.ID)
+	current, err := r.repo.find(ctx, scope.ActorID, request.ID)
 	if err != nil {
 		return zero, err
 	}
@@ -246,6 +251,10 @@ func (r *Resource) Restore(ctx context.Context, request *BackupRequest) (respons
 }
 
 func (r *Resource) Download(ctx context.Context, request *BackupRequest) (response.Response[BackupResponse], error) {
+	scope, err := domain.RequireScope(ctx)
+	if err != nil {
+		return response.Response[BackupResponse]{}, err
+	}
 	result, err := r.One(ctx, request)
 	if err != nil {
 		return response.Response[BackupResponse]{}, err
@@ -253,7 +262,7 @@ func (r *Resource) Download(ctx context.Context, request *BackupRequest) (respon
 	if result.Data.Status != "ready" {
 		return response.Response[BackupResponse]{}, apperrors.Conflict("备份尚未完成")
 	}
-	current, err := r.repo.find(ctx, request.ID)
+	current, err := r.repo.find(ctx, scope.ActorID, request.ID)
 	if err != nil {
 		return response.Response[BackupResponse]{}, err
 	}

@@ -33,7 +33,7 @@ func (r *Repository) insert(ctx context.Context, entity *QueryHistory) (int64, e
 func (r *Repository) One(ctx context.Context, request *QueryOneRequest) (response.Response[QueryResponse], error) {
 	var result response.Response[QueryResponse]
 	var entity QueryHistory
-	err := r.db.WithContext(ctx).Where("id = ?", request.ID).Take(&entity).Error
+	err := r.db.WithContext(ctx).Where("id = ? and actor_id = ?", request.ID, request.ActorID).Take(&entity).Error
 	if database.IsNotFound(err) {
 		return result, apperrors.NotFound("查询记录不存在")
 	}
@@ -50,7 +50,7 @@ func (r *Repository) Search(ctx context.Context, search *QuerySearch) (response.
 		return result, err
 	}
 	makeQuery := func() *gorm.DB {
-		query := r.db.WithContext(ctx).Model(&QueryHistory{})
+		query := r.db.WithContext(ctx).Model(&QueryHistory{}).Where("actor_id = ?", search.ActorID)
 		if search.ConnectionID > 0 {
 			query = query.Where("connection_id = ?", search.ConnectionID)
 		}

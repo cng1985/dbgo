@@ -22,6 +22,7 @@ type MigrationSearch struct {
 	Status       string `json:"status"`
 	Page         int    `json:"page"`
 	PageSize     int    `json:"page_size"`
+	OwnerID      int64  `json:"-"`
 }
 
 type MigrationSimple struct {

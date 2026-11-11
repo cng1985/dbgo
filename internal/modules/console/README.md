@@ -17,7 +17,7 @@ DBGo 控制台按业务能力拆成子模块。父目录只做组合，子模块
 
 - query、catalog、migration、backup、llm、monitor 通过 `shared.Opener` 打开目标库，由 connection 提供实现。
 - connection 负责连接 JSON 的导入和导出。口令默认不写出。
-- migration、backup 通过 `Describe` 读取连接名称，不写连接表。
+- 连接按创建人隔离。migration、backup 通过 `Describe` 读取当前用户自己的连接名称，不写连接表。
 - 删除连接是跨模块原子操作：connection 的 Repository 开启事务，migration 的 `DeleteOwnedWithTx` 使用同一个事务删除该连接的迁移定义。执行中的迁移会拒绝删除。查询历史和备份文件保留快照名称，不随连接删除。
 
 目标库上的 SQL、迁移和恢复不与应用元数据库处于同一个事务。状态写入失败时保留 `applying` 或 `reverting`，由 resolve 动作人工确认。

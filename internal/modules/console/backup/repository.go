@@ -53,19 +53,19 @@ func (r *Repository) Finish(ctx context.Context, request *BackupRequest, fields 
 	return result, nil
 }
 
-func (r *Repository) One(ctx context.Context, request *BackupRequest) (response.Response[BackupResponse], error) {
-	entity, err := r.find(ctx, request.ID)
+func (r *Repository) One(ctx context.Context, ownerID int64, request *BackupRequest) (response.Response[BackupResponse], error) {
+	entity, err := r.find(ctx, ownerID, request.ID)
 	if err != nil {
 		return response.Response[BackupResponse]{}, err
 	}
 	return response.OK(*BackupEntityToResponse(entity)), nil
 }
 
-func (r *Repository) Delete(ctx context.Context, request *BackupRequest) (response.Response[BackupResponse], error) {
+func (r *Repository) Delete(ctx context.Context, ownerID int64, request *BackupRequest) (response.Response[BackupResponse], error) {
 	var result response.Response[BackupResponse]
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var entity DataBackup
-		if err := tx.Where("id = ?", request.ID).Take(&entity).Error; err != nil {
+		if err := tx.Where("id = ? and created_by = ?", request.ID, ownerID).Take(&entity).Error; err != nil {
 			if database.IsNotFound(err) {
 				return apperrors.NotFound("备份不存在")
 			}
@@ -97,7 +97,7 @@ func (r *Repository) Search(ctx context.Context, search *BackupSearch) (response
 		return result, err
 	}
 	makeQuery := func() *gorm.DB {
-		query := r.db.WithContext(ctx).Model(&DataBackup{})
+		query := r.db.WithContext(ctx).Model(&DataBackup{}).Where("created_by = ?", search.OwnerID)
 		if search.ConnectionID > 0 {
 			query = query.Where("connection_id = ?", search.ConnectionID)
 		}
@@ -122,9 +122,9 @@ func (r *Repository) Search(ctx context.Context, search *BackupSearch) (response
 	return response.PageResponse[BackupSimple]{Data: items, Total: total, Page: page, PageSize: pageSize}, nil
 }
 
-func (r *Repository) find(ctx context.Context, id int64) (*DataBackup, error) {
+func (r *Repository) find(ctx context.Context, ownerID, id int64) (*DataBackup, error) {
 	var entity DataBackup
-	err := r.db.WithContext(ctx).Where("id = ?", id).Take(&entity).Error
+	err := r.db.WithContext(ctx).Where("id = ? and created_by = ?", id, ownerID).Take(&entity).Error
 	if database.IsNotFound(err) {
 		return nil, apperrors.NotFound("备份不存在")
 	}

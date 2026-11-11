@@ -62,7 +62,7 @@ APP_PROFILE=pro APP_AUTH_ADMIN_PASSWORD='至少八位' go run ./cmd/server --dat
 - 性能页读取当前连接的库大小、会话和表规模。
 - 连接可以导出成 JSON，再按跳过、改名或报错导入。默认不导出密码。
 - 总览查看连接、查询、失败查询、迁移和备份数量。个人中心可以改显示名和邮箱。
-- 可以新建并测试 SQLite、MySQL、PostgreSQL、SQL Server 连接。
+- 可以新建并测试 SQLite、MySQL、PostgreSQL、SQL Server 连接。每个账号只能看到自己创建的连接。
 - 可以编写、执行和回滚迁移。失败的脚本保持失败状态。
 - 可以创建 SQL 备份并恢复。SQLite 还可以做 `VACUUM INTO` 文件副本，该副本只供下载。
 
