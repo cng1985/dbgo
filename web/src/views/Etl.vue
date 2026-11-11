@@ -18,6 +18,7 @@ const dialog = ref(null)
 const runsDialog = ref(null)
 const runsTask = ref(null)
 const runningID = ref('')
+const abortingID = ref('')
 const sourceColumns = ref([])
 const targetColumns = ref([])
 const previewRows = ref([])
@@ -140,6 +141,10 @@ async function readTarget() {
   }
 }
 
+function findName(names, name) {
+  return names.find((item) => item === name) || names.find((item) => item.toLowerCase() === name.toLowerCase())
+}
+
 function matchNames() {
   formError.value = ''
   if (!sourceColumns.value.length) {
@@ -147,14 +152,18 @@ function matchNames() {
     return
   }
   const targets = targetColumns.value
-  const matched = sourceColumns.value.filter((name) => !targets.length || targets.some((item) => item.toLowerCase() === name.toLowerCase()))
+  const matched = sourceColumns.value.filter((name) => !targets.length || findName(targets, name))
   form.mappings = matched.map((name) => ({
     source: name,
-    target: targets.find((item) => item.toLowerCase() === name.toLowerCase()) || name
+    target: findName(targets, name) || name
   }))
   if (!form.mappings.length) {
     formError.value = '没有同名字段'
   }
+}
+
+function pending(row) {
+  return runningID.value === row.id || row.last_status === 'running'
 }
 
 async function run(row) {
@@ -168,9 +177,12 @@ async function run(row) {
     const result = (await api('/api/etl/run', { id: row.id })).data
     notice.value = `已写入 ${result.rows_written} 行`
   } catch (err) {
-    error.value = err.message || '执行没有返回结果'
+    if (abortingID.value !== row.id) {
+      error.value = err.message || '执行没有返回结果'
+    }
   } finally {
     runningID.value = ''
+    abortingID.value = ''
     try {
       await load()
     } catch (err) {
@@ -181,6 +193,7 @@ async function run(row) {
 
 async function abort(row) {
   error.value = ''
+  abortingID.value = row.id
   try {
     await api('/api/etl/abort', { id: row.id })
     notice.value = '已中止'
@@ -228,6 +241,9 @@ function targetLabel(row) {
 }
 
 function lastText(row) {
+  if (runningID.value === row.id) {
+    return '进行中'
+  }
   if (!row.last_status) {
     return '还没执行'
   }
@@ -284,12 +300,12 @@ onMounted(async () => {
             <td>{{ row.target_connection_name }} · {{ targetLabel(row) }}</td>
             <td>{{ modeText[row.write_mode] || row.write_mode }}</td>
             <td>
-              <span class="tag" :class="row.last_status === 'failed' ? 'bad' : row.last_status === 'succeeded' ? 'good' : ''">{{ lastText(row) }}</span>
+              <span class="tag" :class="runningID === row.id ? '' : row.last_status === 'failed' ? 'bad' : row.last_status === 'succeeded' ? 'good' : ''">{{ lastText(row) }}</span>
             </td>
             <td class="actions">
               <button class="btn" type="button" @click="openEdit(row)">编辑</button>
               <button class="btn btn-primary" type="button" :disabled="runningID === row.id" @click="run(row)">执行</button>
-              <button v-if="row.last_status === 'running'" class="btn" type="button" @click="abort(row)">中止</button>
+              <button v-if="pending(row)" class="btn" type="button" @click="abort(row)">中止</button>
               <button class="btn" type="button" @click="openRuns(row)">记录</button>
               <button class="btn btn-danger" type="button" @click="remove(row)">删除</button>
             </td>

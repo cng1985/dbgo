@@ -37,7 +37,7 @@ func Transfer(ctx context.Context, source, target *sql.DB, spec Spec) (Outcome, 
 	if limit <= 0 {
 		limit = maxExtractRows
 	}
-	columns, rows, extra, err := readRows(ctx, source, spec.SourceSQL, limit, true)
+	columns, values, extra, err := readRows(ctx, source, spec.SourceSQL, limit, true)
 	if err != nil {
 		return outcome, err
 	}
@@ -45,7 +45,7 @@ func Transfer(ctx context.Context, source, target *sql.DB, spec Spec) (Outcome, 
 		return outcome, apperrors.Invalid(fmt.Sprintf("抽取结果超过 %d 行，已停止且没有写入", limit))
 	}
 	outcome.Columns = columns
-	outcome.RowsRead = int64(len(rows))
+	outcome.RowsRead = int64(len(values))
 	plan, err := buildPlan(columns, spec.Mappings)
 	if err != nil {
 		return outcome, err
@@ -69,7 +69,7 @@ func Transfer(ctx context.Context, source, target *sql.DB, spec Spec) (Outcome, 
 			return outcome, apperrors.Business(codeETL, apperrors.KindInvalid, shared.PublicError("清空目标表失败", "", err), err)
 		}
 	}
-	written, err := insertRows(ctx, tx, spec.Driver, qualified, plan, rows, spec.BatchSize)
+	written, err := insertRows(ctx, tx, spec.Driver, qualified, plan, values, spec.BatchSize)
 	if err != nil {
 		return outcome, err
 	}
@@ -86,9 +86,16 @@ func Preview(ctx context.Context, source *sql.DB, sqlText string, limit int) (Ou
 	if limit <= 0 {
 		limit = previewRows
 	}
-	columns, rows, extra, err := readRows(ctx, source, sqlText, limit, false)
+	columns, values, extra, err := readRows(ctx, source, sqlText, limit, false)
 	if err != nil {
 		return outcome, err
+	}
+	rows := make([][]*string, len(values))
+	for i, line := range values {
+		rows[i] = make([]*string, len(line))
+		for j, cell := range line {
+			rows[i][j] = cellText(cell)
+		}
 	}
 	outcome.Columns = columns
 	outcome.Rows = rows
@@ -106,30 +113,31 @@ func buildPlan(columns []string, mappings []ColumnMap) (columnPlan, error) {
 	if len(columns) == 0 {
 		return columnPlan{}, apperrors.Invalid("抽取语句没有返回字段")
 	}
-	lookup := map[string]int{}
+	exact := map[string]int{}
+	exactCount := map[string]int{}
+	folded := map[string][]int{}
 	for i, name := range columns {
-		key := strings.ToLower(name)
-		if _, ok := lookup[key]; !ok {
-			lookup[key] = i
+		exactCount[name]++
+		if _, ok := exact[name]; !ok {
+			exact[name] = i
 		}
+		key := strings.ToLower(name)
+		folded[key] = append(folded[key], i)
 	}
 	if len(mappings) == 0 {
 		mappings = make([]ColumnMap, 0, len(columns))
-		seen := map[string]struct{}{}
 		for _, name := range columns {
-			key := strings.ToLower(name)
-			if _, ok := seen[key]; ok {
-				continue
+			if exactCount[name] > 1 {
+				return columnPlan{}, apperrors.Invalid("抽取结果里字段 " + name + " 重复")
 			}
-			seen[key] = struct{}{}
 			mappings = append(mappings, ColumnMap{Source: name, Target: name})
 		}
 	}
 	plan := columnPlan{quoted: make([]string, 0, len(mappings)), indexes: make([]int, 0, len(mappings))}
 	for _, item := range mappings {
-		index, ok := lookup[strings.ToLower(item.Source)]
-		if !ok {
-			return columnPlan{}, apperrors.Invalid("抽取结果里没有字段 " + item.Source)
+		index, err := resolveColumn(item.Source, exact, exactCount, folded)
+		if err != nil {
+			return columnPlan{}, err
 		}
 		plan.indexes = append(plan.indexes, index)
 		plan.quoted = append(plan.quoted, item.Target)
@@ -137,7 +145,24 @@ func buildPlan(columns []string, mappings []ColumnMap) (columnPlan, error) {
 	return plan, nil
 }
 
-func readRows(ctx context.Context, db *sql.DB, query string, limit int, strict bool) ([]string, [][]*string, bool, error) {
+func resolveColumn(source string, exact map[string]int, exactCount map[string]int, folded map[string][]int) (int, error) {
+	if exactCount[source] > 1 {
+		return 0, apperrors.Invalid("字段 " + source + " 与多个结果列同名")
+	}
+	if exactCount[source] == 1 {
+		return exact[source], nil
+	}
+	matches := folded[strings.ToLower(source)]
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if len(matches) == 0 {
+		return 0, apperrors.Invalid("抽取结果里没有字段 " + source)
+	}
+	return 0, apperrors.Invalid("字段 " + source + " 与多个只差大小写的结果列对应，请写成和结果一致的名字")
+}
+
+func readRows(ctx context.Context, db *sql.DB, query string, limit int, strict bool) ([]string, [][]any, bool, error) {
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, nil, false, apperrors.Business(codeETL, apperrors.KindInvalid, shared.PublicError("抽取失败", "", err), err)
@@ -154,7 +179,7 @@ func readRows(ctx context.Context, db *sql.DB, query string, limit int, strict b
 	if capacity < 0 {
 		capacity = 0
 	}
-	read := make([][]*string, 0, capacity)
+	read := make([][]any, 0, capacity)
 	extra := false
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
@@ -175,9 +200,9 @@ func readRows(ctx context.Context, db *sql.DB, query string, limit int, strict b
 		if err := rows.Scan(holders...); err != nil {
 			return nil, nil, false, apperrors.Business(codeETL, apperrors.KindInvalid, shared.PublicError("读取抽取结果失败", "", err), err)
 		}
-		line := make([]*string, len(columns))
+		line := make([]any, len(columns))
 		for i, value := range raw {
-			line[i] = cellText(value)
+			line[i] = copyCell(value)
 		}
 		read = append(read, line)
 	}
@@ -185,6 +210,20 @@ func readRows(ctx context.Context, db *sql.DB, query string, limit int, strict b
 		return nil, nil, false, apperrors.Business(codeETL, apperrors.KindInvalid, shared.PublicError("读取抽取结果失败", "", err), err)
 	}
 	return columns, read, extra, nil
+}
+
+func copyCell(value any) any {
+	if value == nil {
+		return nil
+	}
+	switch typed := value.(type) {
+	case []byte:
+		cloned := make([]byte, len(typed))
+		copy(cloned, typed)
+		return cloned
+	default:
+		return typed
+	}
 }
 
 func cellText(value any) *string {
@@ -207,7 +246,7 @@ func cellText(value any) *string {
 	}
 }
 
-func insertRows(ctx context.Context, tx *sql.Tx, driver, table string, plan columnPlan, rows [][]*string, batchSize int) (int64, error) {
+func insertRows(ctx context.Context, tx *sql.Tx, driver, table string, plan columnPlan, rows [][]any, batchSize int) (int64, error) {
 	if len(rows) == 0 {
 		return 0, nil
 	}
@@ -246,7 +285,7 @@ func insertRows(ctx context.Context, tx *sql.Tx, driver, table string, plan colu
 	return written, nil
 }
 
-func insertBatchRows(ctx context.Context, tx *sql.Tx, driver, table string, columns []string, indexes []int, rows [][]*string) error {
+func insertBatchRows(ctx context.Context, tx *sql.Tx, driver, table string, columns []string, indexes []int, rows [][]any) error {
 	var builder strings.Builder
 	builder.WriteString("insert into ")
 	builder.WriteString(table)
@@ -264,11 +303,11 @@ func insertBatchRows(ctx context.Context, tx *sql.Tx, driver, table string, colu
 				builder.WriteString(", ")
 			}
 			builder.WriteByte('?')
-			if index < 0 || index >= len(row) || row[index] == nil {
+			if index < 0 || index >= len(row) {
 				args = append(args, nil)
 				continue
 			}
-			args = append(args, *row[index])
+			args = append(args, row[index])
 		}
 		builder.WriteByte(')')
 	}
