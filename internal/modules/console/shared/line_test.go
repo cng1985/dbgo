@@ -62,6 +62,28 @@ func TestFailStatementUsesRewrittenPostgresPosition(t *testing.T) {
 	}
 }
 
+func TestFailStatementDoesNotCountLeadingCommentTwice(t *testing.T) {
+	parts := sqlscript.SplitParts("select 1;\n-- note\nselect bad")
+	if len(parts) != 2 || parts[1].TextLine != 2 || parts[1].Line != 3 {
+		t.Fatalf("片段 = %#v", parts)
+	}
+	err := failStatement(parts[1], numberedError{line: 2, msg: "bad"})
+	if ErrorLine(err) != 3 {
+		t.Fatalf("行号 = %d，错误 = %v", ErrorLine(err), err)
+	}
+	position := 0
+	for _, ch := range parts[1].Text {
+		position++
+		if ch == 'b' {
+			break
+		}
+	}
+	pgErr := failStatement(parts[1], &pgconn.PgError{Message: "syntax error", Position: int32(position)})
+	if ErrorLine(pgErr) != 3 {
+		t.Fatalf("PostgreSQL 行号 = %d，位置 = %d，文本 = %q", ErrorLine(pgErr), position, parts[1].Text)
+	}
+}
+
 func TestFailStatementKeepsStartLineWithoutDriverLine(t *testing.T) {
 	part := sqlscript.Part{Text: "select missing", Line: 3}
 	err := failStatement(part, errors.New("no such column: missing"))
