@@ -2,6 +2,8 @@
 
 网页版数据库工作台。用来保存连接、设计表和例程、执行 SQL、查看性能、用兼容 OpenAI 协议的模型优化语句，以及做版本化迁移和备份恢复。应用自己的账号、会话和元数据默认放在 SQLite。目标库支持 SQLite、MySQL、PostgreSQL 和 SQL Server。
 
+软件介绍、界面图和操作步骤见 [docs/guide.md](docs/guide.md)。
+
 结构遵循《Go 项目结构规范》v3.4：Gin、GORM、Fx，前端是 Vue 3 + JavaScript + Vite。业务没有 Service 层。规范第 20 章的商品样板不在本产品里，对应的增删改查和事务验收由连接管理承担。
 
 ## 启动
