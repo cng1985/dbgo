@@ -49,6 +49,28 @@ Windows CMD 使用 `scripts\build-platforms.cmd`。脚本不依赖当前工作�
 
 本环境已用 Go 1.22 交叉编译三个目标。没有在 Windows 或 ARM 机器上启动过这些二进制，安装脚本也没有在 systemd 主机上实际跑过。
 
+## 桌面发行
+
+在仓库根目录执行：
+
+```bash
+./scripts/build-electron.sh
+```
+
+脚本先构建页面，再用 `CGO_ENABLED=0` 交叉编译服务程序，然后用 Electron 打出这些包：
+
+| 系统 | 架构 | 产物 |
+| --- | --- | --- |
+| Windows | x64 | `DBGo-*-win.zip` |
+| macOS | x64、arm64 | `DBGo-*-mac.zip` |
+| Linux | x64、arm64 | `DBGo-*.AppImage` 和 `dbgo-*.tar.gz` |
+
+产物在 `electron/dist/`。macOS 包未签名。Windows 是压缩包，不需要安装程序。只编当前系统时加 `--current`。
+
+桌面窗口监听 `127.0.0.1` 的空闲端口，不使用生产 profile，因此会话 Cookie 可以在本机页面上保存。数据目录在 Electron 的 `userData/data`，日志在 `userData/logs/dbgo.log`。第一次启动生成 `initial-admin-password.txt`，并用对话框给出 `admin` 和口令。关闭窗口时结束服务程序。Windows 压缩包不签名，在 Linux 上打包不需要 Wine。
+
+本机已用 Linux x64 的解包目录启动窗口，登录后进入工作台，关闭窗口后本机服务一起退出。Windows 和 macOS 的压缩包是在 Linux 上生成的，并用 `file` 核对过里面的服务程序分别是 Windows x64、macOS x64 和 macOS arm64。没有在 Windows 或 Mac 上打开过这些包。
+
 ## 健康、关闭和备份
 
 存活和就绪见 README。关闭时先把就绪标成不可用，再在 `server.shutdown_timeout` 内排空 HTTP，然后关闭应用库。
