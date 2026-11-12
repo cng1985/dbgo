@@ -70,8 +70,8 @@ function onToggle(event) {
       <span v-if="node.meta" class="tree-meta">{{ node.meta }}</span>
     </div>
     <div v-if="node.open">
-      <div v-if="node.loading" class="tree-row hint" :style="{ paddingLeft: ((depth + 1) * 14 + 22) + 'px' }">正在读取…</div>
-      <div v-else-if="node.error" class="tree-row hint bad" :style="{ paddingLeft: ((depth + 1) * 14 + 22) + 'px' }">{{ node.error }}</div>
+      <div v-if="node.loading && !(node.children || []).length" class="tree-row hint" :style="{ paddingLeft: ((depth + 1) * 14 + 22) + 'px' }">正在读取…</div>
+      <div v-else-if="node.error && !(node.children || []).length" class="tree-row hint bad" :style="{ paddingLeft: ((depth + 1) * 14 + 22) + 'px' }">{{ node.error }}</div>
       <div v-else-if="node.loaded && !(node.children || []).length" class="tree-row hint" :style="{ paddingLeft: ((depth + 1) * 14 + 22) + 'px' }">空</div>
       <TreeNode
         v-for="child in node.children || []"

@@ -86,6 +86,8 @@ const description = ref('')
 const objectId = ref('')
 const savedDescription = ref('')
 const procedureExisting = ref(false)
+const procedureSavedName = ref('')
+const procedureSavedSchema = ref('')
 const procedureDraft = ref('')
 const baselineColumns = ref(null)
 const baselineName = ref('')
@@ -188,6 +190,8 @@ watch(() => props.command, async (command) => {
   objectId.value = ''
   savedDescription.value = ''
   procedureExisting.value = false
+  procedureSavedName.value = command.type === 'edit' && (command.kind || 'table') === 'procedure' ? (command.name || '') : ''
+  procedureSavedSchema.value = procedureSavedName.value ? schema.value : ''
   procedureDraft.value = ''
   if (command.type === 'edit' && command.name) {
     await loadDefinition()
@@ -296,6 +300,10 @@ async function loadDefinition() {
     }
     if (result.schema) {
       schema.value = result.schema
+    }
+    if (kind.value === 'procedure') {
+      procedureSavedName.value = name.value
+      procedureSavedSchema.value = schema.value
     }
     replace.value = kind.value !== 'table'
     const hints = [result.note || '']
@@ -422,6 +430,8 @@ async function refreshProcedure() {
   description.value = ''
   savedDescription.value = ''
   objectId.value = ''
+  procedureSavedName.value = ''
+  procedureSavedSchema.value = ''
   sql.value = procedureTemplate(driver.value, schema.value, name.value)
   procedureDraft.value = sql.value
 }
@@ -475,11 +485,21 @@ async function saveProcedure() {
     procedureExisting.value = true
     savedDescription.value = description.value
     note.value = `已保存存储过程，执行 ${result.statements} 条语句，耗时 ${result.duration_ms} ms`
-    emit('applied', {
-      connectionId: connectionID.value,
-      schema: schema.value,
-      name: currentName
-    })
+    const previousName = procedureSavedName.value
+    const previousSchema = procedureSavedSchema.value
+    const samePlace = previousName === currentName && previousSchema === schema.value
+    procedureSavedName.value = currentName
+    procedureSavedSchema.value = schema.value
+    if (!samePlace) {
+      emit('applied', {
+        connectionId: connectionID.value,
+        schema: schema.value,
+        name: currentName,
+        previousSchema,
+        previousName,
+        kind: 'procedure'
+      })
+    }
     await loadDefinition()
     note.value = `已保存存储过程，执行 ${result.statements} 条语句，耗时 ${result.duration_ms} ms`
   } catch (err) {
