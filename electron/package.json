@@ -1,0 +1,55 @@
+{
+  "name": "dbgo",
+  "productName": "DBGo",
+  "version": "0.1.0",
+  "description": "数据库工作台",
+  "private": true,
+  "main": "main.js",
+  "author": "cng1985",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "dev.dbgo.desktop",
+    "productName": "DBGo",
+    "executableName": "DBGo",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "paths.js",
+      "env.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/bin",
+        "to": "bin"
+      },
+      {
+        "from": "resources/configs",
+        "to": "configs"
+      }
+    ],
+    "win": {
+      "target": ["zip"],
+      "signAndEditExecutable": false
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "identity": null,
+      "target": ["zip"]
+    },
+    "linux": {
+      "category": "Development",
+      "target": ["AppImage", "tar.gz"]
+    }
+  }
+}

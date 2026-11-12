@@ -1,5 +1,8 @@
 /data/
 /release/
+/electron/node_modules/
+/electron/dist/
+/electron/resources/
 /web/node_modules/
 *.db
 *.db-wal

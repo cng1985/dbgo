@@ -80,6 +80,8 @@ CGO_ENABLED=0 GOTOOLCHAIN=local go test ./...
 
 发布包由 `scripts/build-platforms.ps1` 生成，Windows 入口是 `scripts/build-platforms.cmd`。脚本安装前端依赖、构建一次页面，再编译 `windows/amd64`、`linux/amd64`、`linux/arm64`。产物在 `release/<系统>-<架构>/`，包含二进制、配置模板、迁移 SQL、版本说明和校验值。不包含数据库、口令和日志。
 
+桌面版由 `scripts/build-electron.sh` 生成，覆盖 Windows x64、macOS x64 和 arm64、Linux x64 和 arm64。安装包在 `electron/dist/`。窗口只打开本机服务，数据放在系统的用户数据目录。第一次打开会提示管理员账号 `admin` 和初始口令。
+
 Linux 安装：
 
 ```bash
