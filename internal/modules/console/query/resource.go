@@ -88,7 +88,7 @@ func (r *Resource) Execute(ctx context.Context, request *QueryExecuteRequest) (r
 	}
 	if execErr != nil {
 		status = "failed"
-		message = shared.PublicError("SQL 执行失败", "", execErr)
+		message = shared.PublicSQLError(execErr)
 		if len(message) > 2000 {
 			message = message[:2000]
 		}

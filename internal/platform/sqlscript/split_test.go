@@ -36,6 +36,36 @@ func TestSplitKeepsRoutineBody(t *testing.T) {
 	}
 }
 
+func TestSplitPartsReportsCodeLine(t *testing.T) {
+	parts := SplitParts("select 1;\nselect bad_col\nfrom city;")
+	if len(parts) != 2 || parts[0].Line != 1 || parts[1].Line != 2 {
+		t.Fatalf("行号 = %#v", parts)
+	}
+	if parts[1].Text != "select bad_col\nfrom city" {
+		t.Fatalf("第二条 = %q", parts[1].Text)
+	}
+
+	commented := SplitParts("-- note\nselect bad;")
+	if len(commented) != 1 || commented[0].Line != 2 {
+		t.Fatalf("注释后的语句行号 = %#v", commented)
+	}
+
+	between := SplitParts("select 1;\n-- skip\nselect bad;")
+	if len(between) != 2 || between[1].Line != 3 {
+		t.Fatalf("语句前注释应跳过: %#v", between)
+	}
+
+	block := SplitParts("/* a\n   b */\nselect 1")
+	if len(block) != 1 || block[0].Line != 3 {
+		t.Fatalf("块注释后的语句行号 = %#v", block)
+	}
+
+	same := SplitParts("select 1; select bad")
+	if len(same) != 2 || same[0].Line != 1 || same[1].Line != 1 {
+		t.Fatalf("同一行的两条语句 = %#v", same)
+	}
+}
+
 func TestSplitKeepsDollarQuote(t *testing.T) {
 	got := Split("CREATE FUNCTION add(a int) RETURNS int AS $$ SELECT a; $$ LANGUAGE sql; SELECT 1")
 	if len(got) != 2 {

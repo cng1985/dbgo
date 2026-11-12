@@ -514,6 +514,16 @@ td.null { color: #9a9a9a; font-style: italic; }
   white-space: pre;
   user-select: none;
 }
+.sql-gutter span {
+  display: block;
+  height: 20px;
+  line-height: 20px;
+}
+.sql-gutter span.sql-line-bad {
+  color: #b42318;
+  font-weight: 700;
+  background: #fde8e8;
+}
 .sql-surface { position: relative; flex: 1; min-width: 0; height: 100%; }
 .sql-backdrop, .sql-input {
   box-sizing: border-box;

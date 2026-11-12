@@ -66,7 +66,7 @@ func Execute(ctx context.Context, db *sql.DB, driver, script string, options Exe
 	if db == nil {
 		return nil, fmt.Errorf("目标连接不存在")
 	}
-	statements := sqlscript.Split(script)
+	statements := sqlscript.SplitParts(script)
 	if len(statements) == 0 {
 		return nil, fmt.Errorf("SQL 不能为空")
 	}
@@ -80,11 +80,11 @@ func Execute(ctx context.Context, db *sql.DB, driver, script string, options Exe
 		options.MaxRows = 100
 	}
 	for _, statement := range statements {
-		if Forbidden(statement) {
-			return nil, fmt.Errorf("该语句被控制台拒绝")
+		if Forbidden(statement.Text) {
+			return nil, failStatement(statement, fmt.Errorf("该语句被控制台拒绝"))
 		}
-		if options.ReadOnly && !ReadOnlyToken(FirstToken(statement)) {
-			return nil, fmt.Errorf("只读模式只允许查询语句")
+		if options.ReadOnly && !ReadOnlyToken(FirstToken(statement.Text)) {
+			return nil, failStatement(statement, fmt.Errorf("只读模式只允许查询语句"))
 		}
 	}
 	if options.SQLiteSchema && NormalizeDriver(driver) == "sqlite" {
@@ -107,7 +107,7 @@ type beginner interface {
 	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 }
 
-func executeSwitched(ctx context.Context, db *sql.DB, driver string, statements []string, options ExecOptions, switchSQL string) ([]Result, error) {
+func executeSwitched(ctx context.Context, db *sql.DB, driver string, statements []sqlscript.Part, options ExecOptions, switchSQL string) ([]Result, error) {
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return nil, err
@@ -122,19 +122,19 @@ func executeSwitched(ctx context.Context, db *sql.DB, driver string, statements 
 	return executeSequential(ctx, conn, driver, statements, options)
 }
 
-func executeSequential(ctx context.Context, db queryer, driver string, statements []string, options ExecOptions) ([]Result, error) {
+func executeSequential(ctx context.Context, db queryer, driver string, statements []sqlscript.Part, options ExecOptions) ([]Result, error) {
 	results := make([]Result, 0, len(statements))
 	for _, statement := range statements {
-		batch, err := runStatement(ctx, db, driver, statement, options.MaxRows)
+		batch, err := runStatement(ctx, db, driver, statement.Text, options.MaxRows)
 		if err != nil {
-			return results, err
+			return results, failStatement(statement, err)
 		}
 		results = append(results, batch...)
 	}
 	return results, nil
 }
 
-func executeTransactional(ctx context.Context, db beginner, driver string, statements []string, options ExecOptions) ([]Result, error) {
+func executeTransactional(ctx context.Context, db beginner, driver string, statements []sqlscript.Part, options ExecOptions) ([]Result, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -152,9 +152,9 @@ func executeTransactional(ctx context.Context, db beginner, driver string, state
 	}
 	results := make([]Result, 0, len(statements))
 	for _, statement := range statements {
-		batch, err := runStatement(ctx, tx, driver, statement, options.MaxRows)
+		batch, err := runStatement(ctx, tx, driver, statement.Text, options.MaxRows)
 		if err != nil {
-			return results, err
+			return results, failStatement(statement, err)
 		}
 		results = append(results, batch...)
 	}
@@ -165,7 +165,7 @@ func executeTransactional(ctx context.Context, db beginner, driver string, state
 	return results, nil
 }
 
-func executeSQLiteSchema(ctx context.Context, db *sql.DB, statements []string, options ExecOptions) ([]Result, error) {
+func executeSQLiteSchema(ctx context.Context, db *sql.DB, statements []sqlscript.Part, options ExecOptions) ([]Result, error) {
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return nil, err
@@ -193,9 +193,9 @@ func executeSQLiteSchema(ctx context.Context, db *sql.DB, statements []string, o
 	}()
 	results := make([]Result, 0, len(statements))
 	for _, statement := range statements {
-		batch, err := runStatement(ctx, tx, "sqlite", statement, options.MaxRows)
+		batch, err := runStatement(ctx, tx, "sqlite", statement.Text, options.MaxRows)
 		if err != nil {
-			return results, err
+			return results, failStatement(statement, err)
 		}
 		results = append(results, batch...)
 	}

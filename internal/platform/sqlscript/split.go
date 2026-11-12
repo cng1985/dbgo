@@ -6,26 +6,63 @@ import (
 	"unicode"
 )
 
+// Part 是切分后的一条语句，以及它在原脚本里的起始行。行号从 1 开始，指向这条语句的第一行代码，不计它前面的空行和注释。
+type Part struct {
+	Text string
+	Line int
+}
+
 // Split 按分号切分语句，保留引号、括号标识符、注释、美元引号和 BEGIN/END、CASE/END 块中的分号。
 func Split(sqlText string) []string {
+	parts := SplitParts(sqlText)
+	statements := make([]string, len(parts))
+	for i, part := range parts {
+		statements[i] = part.Text
+	}
+	return statements
+}
+
+// SplitParts 与 Split 切出相同的语句，并记下每条语句在原脚本中的行号。
+func SplitParts(sqlText string) []Part {
 	var (
-		statements []string
-		buf        strings.Builder
-		inSingle   bool
-		inDouble   bool
-		inBacktick bool
-		inBracket  bool
-		inLine     bool
-		inBlock    bool
-		depth      int
-		dollar     string
+		parts       []Part
+		buf         strings.Builder
+		line        = 1
+		contentLine int
+		inSingle    bool
+		inDouble    bool
+		inBacktick  bool
+		inBracket   bool
+		inLine      bool
+		inBlock     bool
+		depth       int
+		dollar      string
 	)
+	write := func(ch rune) {
+		if contentLine == 0 && !unicode.IsSpace(ch) {
+			contentLine = line
+		}
+		buf.WriteRune(ch)
+		if ch == '\n' {
+			line++
+		}
+	}
+	writeString := func(text string) {
+		for _, ch := range text {
+			write(ch)
+		}
+	}
 	flush := func() {
 		statement := strings.TrimSpace(buf.String())
 		buf.Reset()
 		if statement != "" {
-			statements = append(statements, statement)
+			start := contentLine
+			if start < 1 {
+				start = 1
+			}
+			parts = append(parts, Part{Text: statement, Line: start + codeOffset(statement)})
 		}
+		contentLine = 0
 	}
 	runes := []rune(sqlText)
 	for i := 0; i < len(runes); i++ {
@@ -35,25 +72,25 @@ func Split(sqlText string) []string {
 			next = runes[i+1]
 		}
 		if inLine {
-			buf.WriteRune(ch)
+			write(ch)
 			if ch == '\n' {
 				inLine = false
 			}
 			continue
 		}
 		if inBlock {
-			buf.WriteRune(ch)
+			write(ch)
 			if ch == '*' && next == '/' {
-				buf.WriteRune(next)
+				write(next)
 				i++
 				inBlock = false
 			}
 			continue
 		}
 		if inSingle {
-			buf.WriteRune(ch)
+			write(ch)
 			if ch == '\'' && next == '\'' {
-				buf.WriteRune(next)
+				write(next)
 				i++
 				continue
 			}
@@ -63,9 +100,9 @@ func Split(sqlText string) []string {
 			continue
 		}
 		if inDouble {
-			buf.WriteRune(ch)
+			write(ch)
 			if ch == '"' && next == '"' {
-				buf.WriteRune(next)
+				write(next)
 				i++
 				continue
 			}
@@ -75,9 +112,9 @@ func Split(sqlText string) []string {
 			continue
 		}
 		if inBacktick {
-			buf.WriteRune(ch)
+			write(ch)
 			if ch == '`' && next == '`' {
-				buf.WriteRune(next)
+				write(next)
 				i++
 				continue
 			}
@@ -87,9 +124,9 @@ func Split(sqlText string) []string {
 			continue
 		}
 		if inBracket {
-			buf.WriteRune(ch)
+			write(ch)
 			if ch == ']' && next == ']' {
-				buf.WriteRune(next)
+				write(next)
 				i++
 				continue
 			}
@@ -100,17 +137,17 @@ func Split(sqlText string) []string {
 		}
 		if dollar != "" {
 			if hasPrefixRunes(runes, i, dollar) {
-				buf.WriteString(dollar)
+				writeString(dollar)
 				i += len([]rune(dollar)) - 1
 				dollar = ""
 				continue
 			}
-			buf.WriteRune(ch)
+			write(ch)
 			continue
 		}
 		if ch == '$' {
 			if tag := dollarTag(runes, i); tag != "" {
-				buf.WriteString(tag)
+				writeString(tag)
 				i += len([]rune(tag)) - 1
 				dollar = tag
 				continue
@@ -132,7 +169,7 @@ func Split(sqlText string) []string {
 					depth--
 				}
 			}
-			buf.WriteString(word)
+			writeString(word)
 			i = end - 1
 			continue
 		}
@@ -143,16 +180,16 @@ func Split(sqlText string) []string {
 		switch ch {
 		case '-':
 			if next == '-' {
-				buf.WriteRune(ch)
-				buf.WriteRune(next)
+				write(ch)
+				write(next)
 				i++
 				inLine = true
 				continue
 			}
 		case '/':
 			if next == '*' {
-				buf.WriteRune(ch)
-				buf.WriteRune(next)
+				write(ch)
+				write(next)
 				i++
 				inBlock = true
 				continue
@@ -166,10 +203,50 @@ func Split(sqlText string) []string {
 		case '[':
 			inBracket = true
 		}
-		buf.WriteRune(ch)
+		write(ch)
 	}
 	flush()
-	return statements
+	return parts
+}
+
+// codeOffset 返回语句开头的注释和空白占了多少行。调用方把它加到内容起始行上，得到第一行代码。
+func codeOffset(statement string) int {
+	runes := []rune(statement)
+	newlines := 0
+	for i := 0; i < len(runes); i++ {
+		ch := runes[i]
+		if ch == '\n' {
+			newlines++
+			continue
+		}
+		if unicode.IsSpace(ch) {
+			continue
+		}
+		if ch == '-' && i+1 < len(runes) && runes[i+1] == '-' {
+			for i < len(runes) && runes[i] != '\n' {
+				i++
+			}
+			if i < len(runes) && runes[i] == '\n' {
+				newlines++
+			}
+			continue
+		}
+		if ch == '/' && i+1 < len(runes) && runes[i+1] == '*' {
+			i += 2
+			for i+1 < len(runes) && !(runes[i] == '*' && runes[i+1] == '/') {
+				if runes[i] == '\n' {
+					newlines++
+				}
+				i++
+			}
+			if i+1 < len(runes) {
+				i++
+			}
+			continue
+		}
+		return newlines
+	}
+	return 0
 }
 
 func isIdentStart(ch rune) bool {

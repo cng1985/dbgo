@@ -8,7 +8,8 @@ const props = defineProps({
   schema: { type: String, default: '' },
   schemas: { type: Array, default: () => [] },
   tables: { type: Array, default: () => [] },
-  fill: { type: Boolean, default: false }
+  fill: { type: Boolean, default: false },
+  errorLine: { type: Number, default: 0 }
 })
 const emit = defineEmits(['update:modelValue', 'run', 'menu'])
 
@@ -27,10 +28,7 @@ const kindLabel = { keyword: '关键字', table: '表', column: '字段', schema
 let held = false
 
 const html = computed(() => highlightSQL(text.value, props.driver, props.tables))
-const lineNumbers = computed(() => {
-  const count = Math.max(1, text.value.split('\n').length)
-  return Array.from({ length: count }, (_, index) => String(index + 1)).join('\n')
-})
+const lineCount = computed(() => Math.max(1, text.value.split('\n').length))
 const rows = computed(() => {
   const list = []
   let section = ''
@@ -67,6 +65,7 @@ watch(() => props.modelValue, (value) => {
 })
 
 watch(html, () => nextTick(syncScroll))
+watch(() => props.errorLine, (line) => nextTick(() => revealLine(line)))
 watch(() => [props.driver, props.schema, props.schemas, props.tables], () => {
   if (open.value) {
     refreshSuggest(false)
@@ -308,13 +307,39 @@ function replaceRange(start, end, value) {
   syncScroll()
 }
 
+function revealLine(line) {
+  const area = input.value
+  if (!area || !line || line < 1) {
+    syncScroll()
+    return
+  }
+  const lines = area.value.split('\n')
+  const index = Math.min(lines.length, line) - 1
+  let start = 0
+  for (let i = 0; i < index; i++) {
+    start += lines[i].length + 1
+  }
+  area.focus()
+  area.selectionStart = start
+  area.selectionEnd = start + (lines[index] || '').length
+  const style = getComputedStyle(area)
+  const lineHeight = Number.parseFloat(style.lineHeight) || 20
+  const pad = Number.parseFloat(style.paddingTop) || 0
+  const target = pad + index * lineHeight
+  const view = area.clientHeight || 0
+  if (target < area.scrollTop || target > area.scrollTop + view - lineHeight) {
+    area.scrollTop = Math.max(0, target - view / 3)
+  }
+  syncScroll()
+}
+
 function onContextMenu(event) {
   event.preventDefault()
   open.value = false
   emit('menu', { x: event.clientX, y: event.clientY, ...selection() })
 }
 
-defineExpose({ selection, replaceRange, insertAtCaret })
+defineExpose({ selection, replaceRange, insertAtCaret, revealLine })
 
 onMounted(() => {
   if (input.value) {
@@ -333,7 +358,9 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="root" class="sql-editor" :class="{ 'sql-editor-fill': fill }" translate="no">
-    <div ref="gutter" class="sql-gutter" aria-hidden="true">{{ lineNumbers }}</div>
+    <div ref="gutter" class="sql-gutter" aria-hidden="true">
+      <span v-for="n in lineCount" :key="n" :class="{ 'sql-line-bad': n === errorLine }">{{ n }}</span>
+    </div>
     <div class="sql-surface">
       <pre ref="backdrop" class="sql-backdrop" aria-hidden="true" v-html="html"></pre>
       <textarea

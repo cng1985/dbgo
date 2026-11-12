@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api, driverLabel, formatTime, statusText } from '../api'
 import { commentSQL, copyText, explainSQL, filterSQL, formatSQL, insertSQL } from '../sqlActions.js'
 import { buildEditFields, fieldChanged, querySource, rowKeys, updateRowSQL } from '../rowEdit.js'
+import { sqlErrorLine } from '../sqlError.js'
 import SqlEditor from './SqlEditor.vue'
 
 const props = defineProps({
@@ -20,6 +21,7 @@ const truncated = ref(false)
 const result = ref(null)
 const history = ref([])
 const error = ref('')
+const errorLine = computed(() => sqlErrorLine(error.value))
 const pending = ref(false)
 const panel = ref('result')
 const resultsHeight = ref(240)
@@ -121,6 +123,13 @@ async function loadHints(preferred) {
       hintPending.value = false
     }
   }
+}
+
+function onSQL(value) {
+  if (value !== props.tab.sql) {
+    error.value = ''
+  }
+  props.tab.sql = value
 }
 
 function pickConnection(id) {
@@ -516,7 +525,7 @@ defineExpose({ run, format, explain, optimize })
     </div>
     <p v-if="hintError" class="notice script-alert">结构提示不可用：{{ hintError }}。关键字提示仍然可用。</p>
     <div class="script-editor">
-      <SqlEditor ref="editorRef" v-model="tab.sql" fill :driver="driver" :schema="tab.schema" :schemas="schemaNames" :tables="hintTables" @run="run" @menu="openEditorMenu" />
+      <SqlEditor ref="editorRef" :model-value="tab.sql" :error-line="errorLine" fill :driver="driver" :schema="tab.schema" :schemas="schemaNames" :tables="hintTables" @update:model-value="onSQL" @run="run" @menu="openEditorMenu" />
     </div>
     <template v-if="showResults">
       <div class="splitter-h" @mousedown="startDrag"></div>
