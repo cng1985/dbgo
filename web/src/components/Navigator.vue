@@ -136,8 +136,22 @@ function schemaNode(connection, name) {
   }
 }
 
+function connectionSignature(row) {
+  return [row.driver, row.host, row.port, row.database_name, row.username, row.sqlite_path, row.ssl_mode].join('\n')
+}
+
 function connectionNode(row, previous) {
   if (previous) {
+    const signature = connectionSignature(row)
+    if (previous.signature !== signature) {
+      previous.offline = false
+      previous.failure = ''
+      previous.loaded = false
+      previous.open = false
+      previous.children = []
+      previous.error = ''
+    }
+    previous.signature = signature
     previous.label = row.name
     previous.meta = connectionTarget(row)
     previous.connection = row
@@ -149,6 +163,9 @@ function connectionNode(row, previous) {
     label: row.name,
     meta: connectionTarget(row),
     connection: row,
+    signature: connectionSignature(row),
+    offline: false,
+    failure: '',
     open: false,
     loaded: false,
     children: [],
@@ -185,6 +202,23 @@ function* walk(nodes) {
   }
 }
 
+function markOffline(node) {
+  node.offline = true
+  node.failure = '无法连接'
+  node.open = false
+  node.loaded = false
+  node.children = []
+  node.error = ''
+}
+
+function failLoad(node, err) {
+  if (node.kind === 'connection') {
+    markOffline(node)
+    return
+  }
+  node.error = err.message
+}
+
 async function ensure(node) {
   if (!node || node.leaf || node.loaded || !node.load) {
     return
@@ -194,8 +228,10 @@ async function ensure(node) {
   try {
     node.children = await node.load()
     node.loaded = true
+    node.offline = false
+    node.failure = ''
   } catch (err) {
-    node.error = err.message
+    failLoad(node, err)
   } finally {
     node.loading = false
   }
@@ -267,9 +303,11 @@ async function reloadNode(node, plan) {
     applyOpen(children, plan)
     node.children = children
     node.loaded = true
+    node.offline = false
+    node.failure = ''
     return true
   } catch (err) {
-    node.error = err.message
+    failLoad(node, err)
     return false
   } finally {
     node.loading = false

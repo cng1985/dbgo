@@ -62,8 +62,9 @@ function onToggle(event) {
   <div v-if="visible" class="tree-branch">
     <div
       class="tree-row"
-      :class="{ selected, loading: node.loading }"
+      :class="{ selected, loading: node.loading, offline: node.offline }"
       :style="{ paddingLeft: (depth * 14 + 2) + 'px' }"
+      :title="node.offline ? (node.failure || '无法连接') : undefined"
       @click="tree.select(node)"
       @dblclick="tree.open(node)"
       @contextmenu="tree.context($event, node)"
@@ -72,7 +73,7 @@ function onToggle(event) {
         <Icon name="chevron" :class="{ open: node.open }" />
       </button>
       <span v-else class="twisty"></span>
-      <span class="node-icon" :data-kind="node.kind" :data-driver="node.connection?.driver || ''">
+      <span class="node-icon" :class="{ offline: node.offline }" :data-kind="node.kind" :data-driver="node.connection?.driver || ''">
         <Icon :name="icon" />
       </span>
       <span class="tree-label">{{ node.label }}</span>

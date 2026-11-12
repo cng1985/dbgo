@@ -355,6 +355,9 @@ td.wrap, .wrap { white-space: normal; }
 .node-icon[data-driver="postgres"] { color: #336791; }
 .node-icon[data-driver="sqlserver"] { color: #c43b32; }
 .node-icon[data-driver="sqlite"] { color: #5f5f5f; }
+.node-icon.offline { color: #b5b5b5; }
+.tree-row.offline .tree-label,
+.tree-row.offline .tree-meta { color: #9a9a9a; }
 .tree-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-meta { margin-left: auto; color: #8a8a8a; font-size: 12px; white-space: nowrap; }
 .splitter-v, .splitter-h { flex: 0 0 auto; background: #e5e5e5; }
