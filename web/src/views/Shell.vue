@@ -385,6 +385,13 @@ function newScript(partial = {}) {
   return tab
 }
 
+function toolTitle(tool, command) {
+  if (command?.kind === 'procedure') {
+    return command.name || '存储过程'
+  }
+  return tools[tool]?.title || tool
+}
+
 function openTool(tool, opts = {}) {
   const meta = tools[tool]
   if (!meta) {
@@ -396,7 +403,7 @@ function openTool(tool, opts = {}) {
       id: `tool-${tool}`,
       kind: 'tool',
       tool,
-      title: meta.title,
+      title: toolTitle(tool, opts.command),
       closable: true,
       preferredConnection: opts.connectionId || '',
       preferredSchema: opts.schema || '',
@@ -416,6 +423,7 @@ function openTool(tool, opts = {}) {
     }
     if (opts.command) {
       tab.command = opts.command
+      tab.title = toolTitle(tool, opts.command)
     }
   }
   activeId.value = tab.id
