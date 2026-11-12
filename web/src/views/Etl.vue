@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { api, formatTime, statusText } from '../api'
+import { api, formatTime, listConnections, statusText } from '../api'
 import { schemaPlaceholder } from '../catalogView.js'
 
 const props = defineProps({
@@ -48,8 +48,7 @@ function blank() {
 }
 
 async function loadConnections() {
-  const page = await api('/api/connection/search', { page: 1, page_size: 100, sort: 'name', direction: 'asc' })
-  connections.value = page.data || []
+  connections.value = await listConnections()
 }
 
 async function load() {

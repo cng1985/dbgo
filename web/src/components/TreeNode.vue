@@ -4,6 +4,7 @@ export default { name: 'TreeNode' }
 
 <script setup>
 import { computed, inject } from 'vue'
+import { matchesText, nodeShown } from '../navTree.js'
 import Icon from './Icon.vue'
 
 const props = defineProps({
@@ -15,29 +16,18 @@ const props = defineProps({
 const tree = inject('tree')
 
 const query = computed(() => (tree.filter || '').trim().toLowerCase())
-
-function ownMatch(node, q) {
-  if (!q) {
-    return false
+const visible = computed(() => nodeShown(props.node, query.value, props.force))
+const childForce = computed(() => props.force || matchesText(props.node, query.value))
+const rowTitle = computed(() => {
+  if (props.node.kind === 'connection') {
+    const parts = [props.node.label, props.node.meta]
+    if (props.node.offline) {
+      parts.push(props.node.failure || '无法连接')
+    }
+    return parts.filter(Boolean).join(' · ')
   }
-  return (node.label || '').toLowerCase().includes(q) || (node.meta || '').toLowerCase().includes(q)
-}
-
-function subtreeMatch(node, q) {
-  if (!q) {
-    return true
-  }
-  if (ownMatch(node, q)) {
-    return true
-  }
-  if (!node.loaded && !node.leaf && (node.kind === 'connection' || node.kind === 'schema')) {
-    return true
-  }
-  return (node.children || []).some((child) => subtreeMatch(child, q))
-}
-
-const visible = computed(() => !query.value || props.force || subtreeMatch(props.node, query.value))
-const childForce = computed(() => props.force || ownMatch(props.node, query.value))
+  return props.node.offline ? (props.node.failure || '无法连接') : undefined
+})
 const selected = computed(() => tree.selectedId === props.node.id)
 const icon = computed(() => {
   const kind = props.node.kind
@@ -62,9 +52,9 @@ function onToggle(event) {
   <div v-if="visible" class="tree-branch">
     <div
       class="tree-row"
-      :class="{ selected, loading: node.loading, offline: node.offline }"
+      :class="{ selected, loading: node.loading, offline: node.offline, connection: node.kind === 'connection' }"
       :style="{ paddingLeft: (depth * 14 + 2) + 'px' }"
-      :title="node.offline ? (node.failure || '无法连接') : undefined"
+      :title="rowTitle"
       @click="tree.select(node)"
       @dblclick="tree.open(node)"
       @contextmenu="tree.context($event, node)"

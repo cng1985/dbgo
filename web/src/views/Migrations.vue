@@ -1,6 +1,6 @@
 <script setup>
 import { onMounted, reactive, ref, watch } from 'vue'
-import { api, formatTime, statusText } from '../api'
+import { api, formatTime, listConnections, statusText } from '../api'
 
 const connections = ref([])
 const connectionID = ref('')
@@ -19,10 +19,10 @@ function blank() {
 }
 
 async function loadConnections() {
-  const page = await api('/api/connection/search', { page: 1, page_size: 100, sort: 'name', direction: 'asc' })
-  connections.value = page.data
-  if (!connectionID.value && page.data.length) {
-    connectionID.value = page.data[0].id
+  const rows = await listConnections()
+  connections.value = rows
+  if (!connectionID.value && rows.length) {
+    connectionID.value = rows[0].id
   }
 }
 
