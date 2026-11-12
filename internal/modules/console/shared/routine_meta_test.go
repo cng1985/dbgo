@@ -17,4 +17,8 @@ func TestRoutineMetaSQLite(t *testing.T) {
 	if err != nil || objectID != "" || description != "" {
 		t.Fatalf("SQLite 没有存储过程编号和说明: %q %q %v", objectID, description, err)
 	}
+	viewID, viewText, err := RoutineMeta(context.Background(), db, "sqlite", "main", "city_names", "view")
+	if err != nil || viewID != "" || viewText != "" {
+		t.Fatalf("SQLite 视图没有编号和说明: %q %q %v", viewID, viewText, err)
+	}
 }

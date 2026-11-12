@@ -392,6 +392,9 @@ function toolTitle(tool, command) {
   if (command?.kind === 'function') {
     return command.name || '函数'
   }
+  if (command?.kind === 'view') {
+    return command.name || '视图'
+  }
   return tools[tool]?.title || tool
 }
 

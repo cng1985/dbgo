@@ -420,16 +420,19 @@ func longestText(ctx context.Context, db *sql.DB, query string, args ...any) (st
 	return strings.TrimSpace(best), nil
 }
 
-// RoutineMeta 读取存储过程或函数的编号和说明。SQLite 没有这类对象。
-// 说明读不到时返回空字符串，不代替定义本身失败。
+// RoutineMeta 读取存储过程、函数或视图的编号和说明。
+// SQLite 没有对象编号，MySQL 视图也没有可写的说明。说明读不到时返回空字符串，不代替定义本身失败。
 func RoutineMeta(ctx context.Context, db *sql.DB, driver, schema, name, kind string) (string, string, error) {
 	driver = NormalizeDriver(driver)
 	kind = strings.ToLower(strings.TrimSpace(kind))
-	if driver == "" || driver == "sqlite" || (kind != "procedure" && kind != "function") {
+	if driver == "" || driver == "sqlite" || (kind != "procedure" && kind != "function" && kind != "view") {
 		return "", "", nil
 	}
 	switch driver {
 	case "mysql":
+		if kind == "view" {
+			return "", "", nil
+		}
 		routineType := "PROCEDURE"
 		if kind == "function" {
 			routineType = "FUNCTION"
@@ -447,6 +450,22 @@ func RoutineMeta(ctx context.Context, db *sql.DB, driver, schema, name, kind str
 		}
 		return "", strings.TrimSpace(comment.String), nil
 	case "postgres":
+		if kind == "view" {
+			var objectID, comment sql.NullString
+			query := RewritePlaceholders(driver, `select c.oid::text, obj_description(c.oid, 'pg_class')
+				from pg_class c
+				join pg_namespace n on n.oid = c.relnamespace
+				where n.nspname = ? and c.relname = ? and c.relkind = 'v'
+				limit 1`)
+			err := db.QueryRowContext(ctx, query, schema, name).Scan(&objectID, &comment)
+			if errors.Is(err, sql.ErrNoRows) {
+				return "", "", nil
+			}
+			if err != nil {
+				return "", "", err
+			}
+			return strings.TrimSpace(objectID.String), strings.TrimSpace(comment.String), nil
+		}
 		prokind := "f"
 		if kind == "procedure" {
 			prokind = "p"
@@ -467,8 +486,11 @@ func RoutineMeta(ctx context.Context, db *sql.DB, driver, schema, name, kind str
 		return strings.TrimSpace(objectID.String), strings.TrimSpace(comment.String), nil
 	default:
 		filter := "o.type = 'P'"
-		if kind == "function" {
+		switch kind {
+		case "function":
 			filter = "o.type in ('FN', 'IF', 'TF')"
+		case "view":
+			filter = "o.type = 'V'"
 		}
 		var objectID, comment sql.NullString
 		query := RewritePlaceholders(driver, `select convert(varchar(32), o.object_id), convert(nvarchar(4000), ep.value)

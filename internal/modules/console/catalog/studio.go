@@ -59,7 +59,7 @@ func (r *Resource) Definition(ctx context.Context, search *CatalogSearch) (respo
 	}
 	objectID := ""
 	description := ""
-	if kind == "procedure" || kind == "function" {
+	if kind == "procedure" || kind == "function" || kind == "view" {
 		id, text, metaErr := shared.RoutineMeta(ctx, target.DB, target.Driver, schema, search.Name, kind)
 		if metaErr == nil {
 			objectID = id

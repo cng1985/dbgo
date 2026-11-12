@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import SqlEditor from './SqlEditor.vue'
 import { procedureParams } from '../procedureScript.js'
@@ -27,8 +27,16 @@ const emit = defineEmits([
 const pane = ref('source')
 const params = ref([])
 const isFunction = computed(() => props.kind === 'function')
-const noun = computed(() => isFunction.value ? '函数' : '存储过程')
-const typeName = computed(() => isFunction.value ? 'FUNCTION' : 'PROCEDURE')
+const isView = computed(() => props.kind === 'view')
+const noun = computed(() => isView.value ? '视图' : (isFunction.value ? '函数' : '存储过程'))
+const typeName = computed(() => isView.value ? 'VIEW' : (isFunction.value ? 'FUNCTION' : 'PROCEDURE'))
+const sideLabel = computed(() => isView.value ? '视图页面' : noun.value + '视图')
+
+watch(() => props.kind, (value) => {
+  if (value === 'view') {
+    pane.value = 'source'
+  }
+})
 
 function readParams() {
   params.value = procedureParams(props.sql).map((item) => ({ ...item }))
@@ -102,8 +110,8 @@ defineExpose({ showParams, readParams })
     <p v-if="error" class="notice procedure-note">{{ error }}</p>
     <p v-if="note" class="notice ok procedure-note">{{ note }}</p>
     <div class="procedure-body">
-      <nav class="procedure-side" :aria-label="noun + '视图'">
-        <button type="button" :class="{ active: pane === 'params' }" :aria-pressed="pane === 'params'" @click="showParams">
+      <nav class="procedure-side" :aria-label="sideLabel">
+        <button v-if="!isView" type="button" :class="{ active: pane === 'params' }" :aria-pressed="pane === 'params'" @click="showParams">
           <Icon name="column" />
           <span>{{ noun }}参数</span>
         </button>

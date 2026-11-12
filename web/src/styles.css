@@ -167,7 +167,8 @@ td.wrap, .wrap { white-space: normal; }
 .procedure-meta label.grow { flex: 1 1 240px; }
 .procedure-meta label.grow input { flex: 1; min-width: 120px; }
 .procedure-meta input[aria-label="存储过程名称"],
-.procedure-meta input[aria-label="函数名称"] { width: 220px; }
+.procedure-meta input[aria-label="函数名称"],
+.procedure-meta input[aria-label="视图名称"] { width: 220px; }
 .procedure-meta input[aria-label="ID"] { width: 108px; }
 .procedure-note { margin: 0; border-radius: 0; }
 .procedure-body { flex: 1; min-height: 0; display: flex; }
