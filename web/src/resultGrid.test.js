@@ -22,6 +22,23 @@ test('sortResultRows orders numbers and keeps nulls last', () => {
   assert.deepEqual(rows.map((row) => row[0]), ['10', '2', '1', null])
 })
 
+test('sortResultRows keeps precision past the float limit', () => {
+  const rows = [['-9007199254740992'], ['-9007199254740993'], ['9007199254740993'], ['9007199254740992']]
+  assert.deepEqual(sortResultRows(rows, 0, 'asc').map((item) => item.row[0]), [
+    '-9007199254740993',
+    '-9007199254740992',
+    '9007199254740992',
+    '9007199254740993'
+  ])
+  const decimals = [['1.0000000000000002'], ['1.00000000000000019']]
+  assert.deepEqual(sortResultRows(decimals, 0, 'asc').map((item) => item.row[0]), [
+    '1.00000000000000019',
+    '1.0000000000000002'
+  ])
+  const same = sortResultRows([['1.0'], ['1'], ['01.00']], 0, 'asc')
+  assert.deepEqual(same.map((item) => item.index), [0, 1, 2])
+})
+
 test('sortResultRows keeps the original row number', () => {
   const sorted = sortResultRows([['b'], ['a']], 0, 'asc')
   assert.deepEqual(sorted.map((item) => item.index), [1, 0])

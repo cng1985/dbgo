@@ -59,18 +59,60 @@ function compareCells(left, right, direction) {
 }
 
 function compareText(left, right) {
-  const leftNumber = asNumber(left)
-  const rightNumber = asNumber(right)
-  if (leftNumber !== null && rightNumber !== null && leftNumber !== rightNumber) {
-    return leftNumber - rightNumber
+  const order = compareNumericText(left, right)
+  if (order !== null) {
+    return order
   }
   return left.localeCompare(right, 'zh', { numeric: true, sensitivity: 'base' })
 }
 
-function asNumber(value) {
-  if (!/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(value)) {
+function compareNumericText(left, right) {
+  const a = numericParts(left)
+  const b = numericParts(right)
+  if (!a || !b) {
     return null
   }
-  const number = Number(value)
-  return Number.isFinite(number) ? number : null
+  if (a.negative !== b.negative) {
+    return a.negative ? -1 : 1
+  }
+  const sign = a.negative ? -1 : 1
+  const integer = compareDigits(a.integer, b.integer)
+  if (integer !== 0) {
+    return sign * integer
+  }
+  return sign * compareFraction(a.fraction, b.fraction)
+}
+
+function numericParts(value) {
+  const match = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))$/.exec(value)
+  if (!match) {
+    return null
+  }
+  const integer = (match[2] || '0').replace(/^0+/, '') || '0'
+  const fraction = (match[3] || match[4] || '').replace(/0+$/, '')
+  return {
+    negative: match[1] === '-' && !(integer === '0' && fraction === ''),
+    integer,
+    fraction
+  }
+}
+
+function compareDigits(left, right) {
+  if (left.length !== right.length) {
+    return left.length - right.length
+  }
+  if (left === right) {
+    return 0
+  }
+  return left < right ? -1 : 1
+}
+
+function compareFraction(left, right) {
+  const length = Math.max(left.length, right.length)
+  const a = left.padEnd(length, '0')
+  const b = right.padEnd(length, '0')
+  if (a === b) {
+    return 0
+  }
+  return a < b ? -1 : 1
 }
