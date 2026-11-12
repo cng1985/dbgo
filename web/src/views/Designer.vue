@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { api, driverLabel } from '../api'
 import { columnTypeFor, columnTypeOptions, defaultColumnType, matchColumnType } from '../columnTypes.js'
-import { defaultSchemaName, schemaPlaceholder } from '../catalogView.js'
+import { nextAutoSchema, schemaPlaceholder } from '../catalogView.js'
 
 const props = defineProps({
   command: { type: Object, default: null },
@@ -83,23 +83,51 @@ const alterDialog = ref(null)
 const editingTable = computed(() => kind.value === 'table' && baselineColumns.value != null)
 const blockTableExecute = computed(() => openedAsEdit.value && kind.value === 'table')
 
+function syncAutoSchema() {
+  const editing = openedAsEdit.value || baselineColumns.value != null
+  const next = nextAutoSchema(
+    schema.value,
+    autoSchema.value,
+    driver.value,
+    selectedConnection.value?.database_name || '',
+    editing
+  )
+  schema.value = next.schema
+  autoSchema.value = next.autoSchema
+}
+
+function onConnectionChange(event) {
+  const value = event.target.value
+  if (baselineColumns.value && value !== baselineConnection.value) {
+    baselineColumns.value = null
+  }
+  connectionID.value = value
+  syncAutoSchema()
+}
+
 watch(driver, (value, previous) => {
   for (const column of columns.value) {
     column.type = columnTypeFor(value, column.type)
   }
-  if (!previous || openedAsEdit.value || baselineColumns.value) {
+  if (!previous || value === previous) {
     return
   }
-  const next = defaultSchemaName(value, selectedConnection.value?.database_name || '')
-  if (!schema.value || schema.value === autoSchema.value) {
-    schema.value = next
-    autoSchema.value = next
-  }
+  syncAutoSchema()
 })
 
-watch(connectionID, (value) => {
+watch(() => selectedConnection.value?.database_name || '', (value, previous) => {
+  if (previous === undefined || value === previous) {
+    return
+  }
+  syncAutoSchema()
+})
+
+watch(connectionID, (value, previous) => {
   if (baselineColumns.value && value !== baselineConnection.value) {
     baselineColumns.value = null
+  }
+  if (previous && value !== previous) {
+    syncAutoSchema()
   }
 })
 
@@ -117,13 +145,15 @@ watch(() => props.command, async (command) => {
   if (command.connectionId) {
     connectionID.value = command.connectionId
   }
-  schema.value = command.schema || ''
-  autoSchema.value = ''
-  if (command.type !== 'edit' && !command.schema) {
-    const next = defaultSchemaName(driver.value, selectedConnection.value?.database_name || '')
-    schema.value = next
-    autoSchema.value = next
-  }
+  const filled = nextAutoSchema(
+    command.schema || '',
+    '',
+    driver.value,
+    selectedConnection.value?.database_name || '',
+    command.type === 'edit'
+  )
+  schema.value = filled.schema
+  autoSchema.value = filled.autoSchema
   name.value = command.name || ''
   replace.value = command.type === 'edit'
   openedAsEdit.value = command.type === 'edit'
@@ -340,7 +370,7 @@ async function apply() {
     <p v-if="sqliteRoutine" class="notice">SQLite 不支持在控制台创建存储过程或函数。</p>
     <div class="toolbar">
       <div class="row grow">
-        <select v-model="connectionID" aria-label="连接">
+        <select :value="connectionID" aria-label="连接" @change="onConnectionChange">
           <option value="" disabled>选择连接</option>
           <option v-for="item in connections" :key="item.id" :value="item.id">{{ item.name }}</option>
         </select>

@@ -25,12 +25,22 @@ const selected = computed(() => connections.value.find((item) => item.id === con
 const visibleTables = computed(() => filterTables(tables.value, keyword.value))
 let structureHold = 0
 let appliedFocus = 0
+let connectionsReady = false
+let mounted = false
+let schemaSerial = 0
+let tableSerial = 0
+let detailSerial = 0
+
+function sameID(left, right) {
+  return String(left || '') === String(right || '')
+}
 
 async function loadConnections() {
   const page = await api('/api/connection/search', { page: 1, page_size: 100, sort: 'name', direction: 'asc' })
-  connections.value = page.data
-  if (!connectionID.value && page.data.length) {
-    connectionID.value = page.data[0].id
+  connections.value = page.data || []
+  connectionsReady = true
+  if (!connectionID.value && connections.value.length) {
+    connectionID.value = connections.value[0].id
   }
 }
 
@@ -43,35 +53,50 @@ function requestedSchema() {
 
 async function loadSchemas() {
   const requested = requestedSchema()
+  const connection = connectionID.value
+  const serial = ++schemaSerial
   schemas.value = []
   schema.value = ''
   tables.value = []
   keyword.value = ''
-  if (!connectionID.value) {
+  if (!connection) {
     appliedFocus = props.focusSeq || appliedFocus
     return
   }
-  const result = (await api('/api/catalog/schemas', { connection_id: connectionID.value })).data
+  const result = (await api('/api/catalog/schemas', { connection_id: connection })).data
+  if (serial !== schemaSerial || !sameID(connectionID.value, connection)) {
+    return
+  }
   schemas.value = result.schemas || []
   schema.value = pickSchema(selected.value?.driver, schemas.value, requested, selected.value?.database_name || '')
   appliedFocus = props.focusSeq || appliedFocus
 }
 
 async function loadTables() {
+  const connection = connectionID.value
+  const currentSchema = schema.value
+  const serial = ++tableSerial
   tables.value = []
   columns.value = []
   indexes.value = []
   table.value = ''
-  if (!connectionID.value) {
+  if (!connection) {
     return
   }
-  const result = (await api('/api/catalog/tables', { connection_id: connectionID.value, schema: schema.value })).data
+  const result = (await api('/api/catalog/tables', { connection_id: connection, schema: currentSchema })).data
+  if (serial !== tableSerial || !sameID(connectionID.value, connection) || schema.value !== currentSchema) {
+    return
+  }
   tables.value = result.tables || []
   table.value = tables.value[0]?.name || ''
 }
 
 async function loadDetail(options = {}) {
-  if (!connectionID.value || !table.value) {
+  const connection = connectionID.value
+  const currentSchema = schema.value
+  const currentTable = table.value
+  const serial = ++detailSerial
+  if (!connection || !currentTable) {
     columns.value = []
     indexes.value = []
     return
@@ -80,9 +105,12 @@ async function loadDetail(options = {}) {
     columns.value = []
     indexes.value = []
   }
-  const body = { connection_id: connectionID.value, schema: schema.value, table: table.value }
+  const body = { connection_id: connection, schema: currentSchema, table: currentTable }
   const columnResult = (await api('/api/catalog/columns', body)).data
   const indexResult = (await api('/api/catalog/indexes', body)).data
+  if (serial !== detailSerial || !sameID(connectionID.value, connection) || schema.value !== currentSchema || table.value !== currentTable) {
+    return
+  }
   columns.value = columnResult.columns || []
   indexes.value = indexResult.indexes || []
 }
@@ -101,18 +129,27 @@ async function refreshStructure(info) {
   }
   const keepSchema = viewingEdited ? nextSchema : currentSchema
   const keepTable = viewingEdited ? info.name : table.value
+  const connection = connectionID.value
+  const serial = ++schemaSerial
   structureHold += 1
   try {
-    const schemaResult = (await api('/api/catalog/schemas', { connection_id: connectionID.value })).data
+    const schemaResult = (await api('/api/catalog/schemas', { connection_id: connection })).data
+    if (serial !== schemaSerial || !sameID(connectionID.value, connection)) {
+      return
+    }
     schemas.value = schemaResult.schemas || []
     const schemaNames = new Set(schemas.value.map((item) => item.name))
     schema.value = schemaNames.has(keepSchema) || keepSchema === ''
       ? keepSchema
       : pickSchema(selected.value?.driver, schemas.value, '', selected.value?.database_name || '')
     const tableResult = (await api('/api/catalog/tables', {
-      connection_id: connectionID.value,
+      connection_id: connection,
       schema: schema.value
     })).data
+    if (serial !== schemaSerial || !sameID(connectionID.value, connection)) {
+      return
+    }
+    tableSerial += 1
     tables.value = tableResult.tables || []
     if (tables.value.some((item) => item.name === keepTable)) {
       table.value = keepTable
@@ -128,6 +165,9 @@ async function refreshStructure(info) {
 }
 
 watch(connectionID, async () => {
+  if (!connectionsReady || !mounted) {
+    return
+  }
   error.value = ''
   try {
     await loadSchemas()
@@ -199,9 +239,13 @@ watch(() => props.structureRefresh?.seq, (value, previous) => {
 
 onMounted(async () => {
   try {
-    await loadConnections()
-    if (props.preferredConnection && connectionID.value !== props.preferredConnection) {
+    if (props.preferredConnection) {
       connectionID.value = props.preferredConnection
+    }
+    await loadConnections()
+    mounted = true
+    if (connectionID.value) {
+      await loadSchemas()
     }
   } catch (err) {
     error.value = err.message
