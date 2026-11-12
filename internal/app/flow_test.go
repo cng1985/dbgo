@@ -753,8 +753,14 @@ func TestConsoleFlow(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		content := `{"summary":"改写完成","sql":"select id, name from city","notes":["避免 select *"]}`
+		if strings.Contains(string(body), "只设计一张新表") {
+			content = `{"summary":"已设计订单表","name":"orders","comment":"订单","notes":["金额用 numeric"],"columns":[{"name":"id","type":"integer","nullable":false,"primary":true,"identity":true,"comment":"主键"},{"name":"amount","type":"numeric","nullable":false,"default":"0","comment":"金额"}]}`
+		}
+		encoded, _ := json.Marshal(content)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"summary\":\"改写完成\",\"sql\":\"select id, name from city\",\"notes\":[\"避免 select *\"]}"}}]}`))
+		_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"content":%s}}]}`, encoded)
 	}))
 	defer llmServer.Close()
 	model := post(t, client, base+"/api/llm/create", map[string]any{
@@ -773,6 +779,21 @@ func TestConsoleFlow(t *testing.T) {
 	})
 	if optimized.Code != 200 || optimized.Data["sql"] != "select id, name from city" {
 		t.Fatalf("SQL 优化失败: %#v", optimized)
+	}
+	designed := post(t, client, base+"/api/llm/design-table", map[string]any{
+		"connection_id": connectionID,
+		"prompt":        "订单表，包含金额",
+	})
+	designedColumns, _ := designed.Data["columns"].([]any)
+	if designed.Code != 200 || designed.Data["name"] != "orders" || designed.Data["comment"] != "订单" || len(designedColumns) != 2 {
+		t.Fatalf("AI 建表失败: %#v", designed)
+	}
+	emptyDesign := post(t, client, base+"/api/llm/design-table", map[string]any{
+		"connection_id": connectionID,
+		"prompt":        "  ",
+	})
+	if emptyDesign.Code != 400 {
+		t.Fatalf("空描述应返回 400: %#v", emptyDesign)
 	}
 
 	emptyPage := post(t, client, base+"/api/connection/search", map[string]any{"keyword": "不存在的连接", "page": 1, "page_size": 20})

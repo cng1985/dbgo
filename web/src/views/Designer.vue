@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { api, driverLabel } from '../api'
 import { columnTypeFor, columnTypeOptions, defaultColumnType, matchColumnType } from '../columnTypes.js'
 import { nextAutoSchema, schemaPlaceholder } from '../catalogView.js'
@@ -89,6 +89,10 @@ function optionsFor(type) {
 }
 
 const columns = ref([blankColumn(true)])
+const aiPrompt = ref('')
+const aiNotes = ref([])
+const aiComment = ref('')
+const aiPromptEl = ref(null)
 const params = ref([])
 const description = ref('')
 const objectId = ref('')
@@ -194,6 +198,9 @@ watch(() => props.command, async (command) => {
   openedAsEdit.value = command.type === 'edit'
   error.value = ''
   note.value = ''
+  aiPrompt.value = ''
+  aiNotes.value = []
+  aiComment.value = ''
   description.value = ''
   objectId.value = ''
   savedDescription.value = ''
@@ -211,6 +218,10 @@ watch(() => props.command, async (command) => {
       sql.value = procedureTemplate(driver.value, schema.value, name.value, kind.value)
       procedureDraft.value = sql.value
     }
+  }
+  if (command.ai && kind.value === 'table') {
+    await nextTick()
+    aiPromptEl.value?.focus()
   }
 }, { immediate: true })
 
@@ -266,6 +277,63 @@ function payload() {
     returns: returns.value,
     language: language.value,
     body: body.value
+  }
+}
+
+async function designWithAI() {
+  error.value = ''
+  note.value = ''
+  aiNotes.value = []
+  aiComment.value = ''
+  if (!connectionID.value) {
+    error.value = '请选择连接'
+    return
+  }
+  const prompt = aiPrompt.value.trim()
+  if (!prompt) {
+    error.value = '请先描述要建的表'
+    return
+  }
+  pending.value = true
+  try {
+    const result = (await api('/api/llm/design-table', {
+      connection_id: connectionID.value,
+      schema: schema.value,
+      prompt
+    })).data
+    const loaded = Array.isArray(result?.columns) ? result.columns : []
+    if (!result?.name || !loaded.length) {
+      error.value = '模型没有返回可识别的表结构'
+      return
+    }
+    name.value = result.name
+    columns.value = loaded.map((item) => ({
+      origin: '',
+      name: item.name || '',
+      type: matchColumnType(driver.value, item.type),
+      nullable: !!item.nullable,
+      primary: !!item.primary,
+      identity: !!item.identity,
+      default: item.default || '',
+      comment: item.comment || ''
+    }))
+    baselineColumns.value = null
+    openedAsEdit.value = false
+    replace.value = false
+    sql.value = ''
+    aiComment.value = result.comment || ''
+    aiNotes.value = Array.isArray(result.notes) ? result.notes : []
+    note.value = result.summary || '已填入表结构，确认后再执行。'
+    try {
+      const previewed = (await api('/api/catalog/preview', payload())).data
+      sql.value = previewed.sql || ''
+    } catch (err) {
+      error.value = err.message
+    }
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    pending.value = false
   }
 }
 
@@ -624,6 +692,26 @@ async function apply() {
         <button v-if="editingTable" class="btn btn-primary" type="button" :disabled="pending" @click="updateStructure">更新结构</button>
         <button v-else-if="!blockTableExecute" class="btn btn-primary" type="button" :disabled="pending" @click="apply">执行</button>
       </div>
+    </div>
+
+    <div v-if="kind === 'table'" class="card">
+      <div class="toolbar">
+        <div class="row">
+          <h2>AI 建表</h2>
+        </div>
+      </div>
+      <label class="field">
+        <span>用一句话描述要建的表</span>
+        <textarea ref="aiPromptEl" v-model="aiPrompt" class="ai-prompt" rows="3" aria-label="建表描述" placeholder="例如：订单表，包含订单号、客户、金额、状态和下单时间" />
+      </label>
+      <div class="row">
+        <button class="btn btn-primary" type="button" :disabled="pending || !aiPrompt.trim()" @click="designWithAI">生成结构</button>
+        <span class="muted">确认字段和 SQL 后再执行。</span>
+      </div>
+      <p v-if="aiComment" class="muted">表说明：{{ aiComment }}</p>
+      <ul v-if="aiNotes.length" class="ai-notes">
+        <li v-for="(item, index) in aiNotes" :key="index">{{ item }}</li>
+      </ul>
     </div>
 
     <div v-if="kind === 'table'" class="card">

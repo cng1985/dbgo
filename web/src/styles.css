@@ -92,6 +92,15 @@ input:focus, select:focus, textarea:focus {
   font-size: 13px;
   line-height: 20px;
 }
+.field textarea.ai-prompt {
+  min-height: 72px;
+  font-family: inherit;
+}
+.ai-notes {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
 .field-inline { min-width: 0; }
 .field-inline input, .rows { width: 72px; }
 .btn {

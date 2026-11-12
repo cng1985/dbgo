@@ -170,6 +170,7 @@ const menus = computed(() => [
       { label: '连接管理', run: () => openTool('connections') },
       { label: '结构浏览', run: () => openTool('catalog') },
       { label: '新建表', run: () => design('table') },
+      { label: 'AI 建表', run: () => design('table', null, '', { ai: true }) },
       { label: '新建视图', run: () => design('view') },
       { label: '新建存储过程', run: () => design('procedure') },
       { label: '新建函数', run: () => design('function') },
@@ -224,6 +225,7 @@ const contextItems = computed(() => {
     items.push(
       { label: '查看结构', run: () => openTool('catalog', { connectionId: node.connection.id, schema: node.schema || '', focusSeq: Date.now() }) },
       { label: '新建表', run: () => design('table', node) },
+      { label: 'AI 建表', run: () => design('table', node, '', { ai: true }) },
       { label: '新建视图', run: () => design('view', node) },
       { label: '新建存储过程', run: () => design('procedure', node) },
       { label: '新建函数', run: () => design('function', node) },
@@ -394,6 +396,9 @@ function toolTitle(tool, command) {
   }
   if (command?.kind === 'view') {
     return command.name || '视图'
+  }
+  if (command?.ai) {
+    return 'AI 建表'
   }
   return tools[tool]?.title || tool
 }
@@ -688,13 +693,14 @@ async function removeConnection(row) {
   }
 }
 
-function design(kind, node, objectName = '') {
+function design(kind, node, objectName = '', extra = {}) {
   const connection = node?.connection || statusConnection.value
   openTool('designer', {
     connectionId: connection?.id || '',
     command: {
       type: objectName ? 'edit' : 'create',
       kind,
+      ai: !!extra.ai,
       connectionId: connection?.id || '',
       schema: node?.schema || statusSchema.value || '',
       name: objectName || '',
