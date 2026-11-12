@@ -6,10 +6,12 @@ import (
 	"unicode"
 )
 
-// Part 是切分后的一条语句，以及它在原脚本里的起始行。行号从 1 开始，指向这条语句的第一行代码，不计它前面的空行和注释。
+// Part 是切分后的一条语句。行号从 1 开始。
+// TextLine 是语句文本的第一行，包含它开头的注释。Line 是第一行代码，不计前面的空行和注释。
 type Part struct {
-	Text string
-	Line int
+	Text     string
+	TextLine int
+	Line     int
 }
 
 // Split 按分号切分语句，保留引号、括号标识符、注释、美元引号和 BEGIN/END、CASE/END 块中的分号。
@@ -56,11 +58,11 @@ func SplitParts(sqlText string) []Part {
 		statement := strings.TrimSpace(buf.String())
 		buf.Reset()
 		if statement != "" {
-			start := contentLine
-			if start < 1 {
-				start = 1
+			textLine := contentLine
+			if textLine < 1 {
+				textLine = 1
 			}
-			parts = append(parts, Part{Text: statement, Line: start + codeOffset(statement)})
+			parts = append(parts, Part{Text: statement, TextLine: textLine, Line: textLine + codeOffset(statement)})
 		}
 		contentLine = 0
 	}

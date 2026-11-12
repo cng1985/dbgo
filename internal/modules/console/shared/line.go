@@ -54,8 +54,17 @@ func failStatement(part sqlscript.Part, err error) error {
 	if line < 1 {
 		line = 1
 	}
-	if rel := driverRelativeLine(part.Text, err); rel > 1 {
-		line += rel - 1
+	if rel := driverRelativeLine(part.Text, err); rel > 0 {
+		// 驱动的行号从发给它的语句文本算起，文本开头的注释也算一行。
+		// 没有驱动行号时才退回第一行代码。
+		base := part.TextLine
+		if base < 1 {
+			base = line
+		}
+		line = base + rel - 1
+		if line < 1 {
+			line = 1
+		}
 	}
 	return &lineError{Line: line, Err: err}
 }

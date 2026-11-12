@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api, driverLabel, formatTime, statusText } from '../api'
 import { commentSQL, copyText, explainSQL, filterSQL, formatSQL, insertSQL } from '../sqlActions.js'
 import { buildEditFields, fieldChanged, querySource, rowKeys, updateRowSQL } from '../rowEdit.js'
-import { sqlErrorLine } from '../sqlError.js'
+import { lineNumberAt, sqlErrorLine, translateErrorLine } from '../sqlError.js'
 import SqlEditor from './SqlEditor.vue'
 
 const props = defineProps({
@@ -137,13 +137,15 @@ function pickConnection(id) {
   props.tab.connectionId = id
 }
 
-async function run(sqlText) {
+async function run(sqlText, originLine) {
   error.value = ''
   result.value = null
   panel.value = 'result'
   pending.value = true
   props.tab.autorun = 0
-  const sql = typeof sqlText === 'string' ? sqlText : props.tab.sql
+  const selected = typeof sqlText === 'string'
+  const sql = selected ? sqlText : props.tab.sql
+  const origin = selected && Number.isInteger(originLine) && originLine > 0 ? originLine : 1
   try {
     result.value = (await api('/api/query/execute', {
       connection_id: props.tab.connectionId,
@@ -160,8 +162,9 @@ async function run(sqlText) {
     await loadHistory()
     loadHints(props.tab.schema)
   } catch (err) {
-    error.value = err.message
-    emit('ran', err.message)
+    const message = translateErrorLine(err.message, origin)
+    error.value = message
+    emit('ran', message)
     await loadHistory()
   } finally {
     pending.value = false
@@ -292,7 +295,7 @@ function openEditorMenu(payload) {
     x: payload.x,
     y: payload.y,
     items: [
-      { label: selected ? '执行选中' : '执行', run: () => run(selected ? payload.text : undefined) },
+      { label: selected ? '执行选中' : '执行', run: () => run(selected ? payload.text : undefined, selected ? lineNumberAt(props.tab.sql, payload.start) : 1) },
       { label: '格式化', run: () => format(payload) },
       { label: '解释', run: () => explain(payload) },
       { label: 'AI 优化', disabled: !props.tab.connectionId, run: () => optimize(payload) },

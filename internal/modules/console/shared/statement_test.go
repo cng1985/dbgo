@@ -41,6 +41,17 @@ func TestExecuteReportsFailingStatementLine(t *testing.T) {
 	}
 }
 
+func TestExecuteKeepsLeadingBlankLines(t *testing.T) {
+	db := openStatementDB(t)
+	_, err := Execute(context.Background(), db, "sqlite", "\n\nselect missing_column from city;", ExecOptions{ReadOnly: true})
+	if err == nil {
+		t.Fatal("语句应失败")
+	}
+	if ErrorLine(err) != 3 {
+		t.Fatalf("行号 = %d，错误 = %v", ErrorLine(err), err)
+	}
+}
+
 func TestExecuteReportsCommentedStatementLine(t *testing.T) {
 	db := openStatementDB(t)
 	_, err := Execute(context.Background(), db, "sqlite", "select 1;\n-- 下一行才是语句\nselect missing_column from city;", ExecOptions{ReadOnly: true})

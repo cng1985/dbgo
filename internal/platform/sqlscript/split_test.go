@@ -46,7 +46,7 @@ func TestSplitPartsReportsCodeLine(t *testing.T) {
 	}
 
 	commented := SplitParts("-- note\nselect bad;")
-	if len(commented) != 1 || commented[0].Line != 2 {
+	if len(commented) != 1 || commented[0].TextLine != 1 || commented[0].Line != 2 {
 		t.Fatalf("注释后的语句行号 = %#v", commented)
 	}
 
