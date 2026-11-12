@@ -389,6 +389,9 @@ function toolTitle(tool, command) {
   if (command?.kind === 'procedure') {
     return command.name || '存储过程'
   }
+  if (command?.kind === 'function') {
+    return command.name || '函数'
+  }
   return tools[tool]?.title || tool
 }
 

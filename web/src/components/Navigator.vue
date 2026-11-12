@@ -88,7 +88,6 @@ function routineNode(connection, schema, item) {
     id: `r-${connection.id}-${schema}-${item.kind}-${item.name}`,
     kind: item.kind,
     label: item.name,
-    meta: item.detail || '',
     connection,
     schema,
     object: item.name,
