@@ -29,6 +29,17 @@ func (e sqlError) Error() string { return "mssql: " + e.message }
 
 func (e sqlError) SQLErrorMessage() string { return e.message }
 
+type linedSQLError struct {
+	message string
+	line    int32
+}
+
+func (e linedSQLError) Error() string { return "mssql: " + e.message }
+
+func (e linedSQLError) SQLErrorMessage() string { return e.message }
+
+func (e linedSQLError) SQLErrorLineNo() int32 { return e.line }
+
 func TestReadOnlyAllowsPrint(t *testing.T) {
 	if FirstToken("print '11'") != "print" {
 		t.Fatalf("首个词应为 print")
@@ -108,6 +119,20 @@ func TestCollectServerErrorUsesMessageText(t *testing.T) {
 	)
 	if err == nil || err.Error() != "对象名无效" {
 		t.Fatalf("应返回服务器消息正文: %v", err)
+	}
+}
+
+func TestCollectServerErrorKeepsLine(t *testing.T) {
+	_, err := playMessages(t,
+		sqlexp.MsgError{Error: linedSQLError{message: "列名 'login_name1' 无效。", line: 14}},
+		sqlexp.MsgNextResultSet{},
+	)
+	if err == nil || err.Error() != "列名 'login_name1' 无效。" {
+		t.Fatalf("应返回服务器消息正文: %v", err)
+	}
+	var numbered interface{ SQLErrorLineNo() int32 }
+	if !errors.As(err, &numbered) || numbered.SQLErrorLineNo() != 14 {
+		t.Fatalf("应保留服务器行号: %v", err)
 	}
 }
 

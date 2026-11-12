@@ -3,6 +3,7 @@ package shared
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -73,7 +74,7 @@ func collectServerMessages(ctx context.Context, nextMessage func(context.Context
 			pending = append(pending, noticeText(m.Message))
 		case sqlexp.MsgError:
 			if queryErr == nil {
-				queryErr = fmt.Errorf("%s", serverMessageText(m.Error))
+				queryErr = sqlServerFailure{text: serverMessageText(m.Error), line: sqlServerLineNo(m.Error)}
 			}
 		case sqlexp.MsgRowsAffected:
 			if open != nil {
@@ -182,6 +183,33 @@ func noticeText(message fmt.Stringer) string {
 		return ""
 	}
 	return message.String()
+}
+
+// sqlServerFailure 保留服务器给出的正文和行号。正文不再带驱动前缀。
+type sqlServerFailure struct {
+	text string
+	line int32
+}
+
+func (e sqlServerFailure) Error() string {
+	if e.text == "" {
+		return "SQL 执行失败"
+	}
+	return e.text
+}
+
+func (e sqlServerFailure) SQLErrorMessage() string { return e.Error() }
+
+func (e sqlServerFailure) SQLErrorLineNo() int32 { return e.line }
+
+func sqlServerLineNo(err error) int32 {
+	var numbered interface{ SQLErrorLineNo() int32 }
+	if errors.As(err, &numbered) && numbered != nil {
+		if n := numbered.SQLErrorLineNo(); n > 0 {
+			return n
+		}
+	}
+	return 0
 }
 
 func serverMessageText(err error) string {
