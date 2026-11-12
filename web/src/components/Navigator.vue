@@ -1,8 +1,8 @@
 <script setup>
-import { computed, provide, reactive, ref, watch } from 'vue'
+import { computed, nextTick, provide, reactive, ref, watch } from 'vue'
 import { api, connectionTarget } from '../api'
 import { nodeShown } from '../navTree.js'
-import { markMatches, nodeMark, planTreeRefresh } from '../treeState.js'
+import { markMatches, mergeTreeChildren, nodeMark, planTreeRefresh } from '../treeState.js'
 import Icon from './Icon.vue'
 import TreeNode from './TreeNode.vue'
 
@@ -13,6 +13,7 @@ const emit = defineEmits(['select', 'context', 'open-data', 'open-design', 'relo
 
 const filter = ref('')
 const filterInput = ref(null)
+const treeBox = ref(null)
 const selectedId = ref('')
 const selectedConnectionId = ref('')
 const roots = ref([])
@@ -301,15 +302,19 @@ async function reloadNode(node, plan) {
   if (!node?.load) {
     return true
   }
-  node.loading = true
-  node.error = ''
+  const quiet = !!node.loaded
+  if (!quiet) {
+    node.loading = true
+    node.error = ''
+  }
   try {
     const children = await node.load()
     applyOpen(children, plan)
-    node.children = children
+    node.children = quiet ? mergeTreeChildren(node.children, children) : children
     node.loaded = true
     node.offline = false
     node.failure = ''
+    node.error = ''
     return true
   } catch (err) {
     failLoad(node, err)
@@ -362,6 +367,8 @@ async function restore(nodes, plan) {
 }
 
 async function refresh(node, change) {
+  const scroller = treeBox.value
+  const scrollTop = scroller ? scroller.scrollTop : 0
   const open = []
   let selected = null
   for (const item of walk(roots.value)) {
@@ -389,6 +396,10 @@ async function refresh(node, change) {
     if (selectedNode.connection?.id != null && selectedNode.connection.id !== '') {
       selectedConnectionId.value = String(selectedNode.connection.id)
     }
+  }
+  await nextTick()
+  if (scroller) {
+    scroller.scrollTop = scrollTop
   }
   return selectedNode
 }
@@ -448,7 +459,7 @@ defineExpose({ refresh, collapseAll, focusFilter, selectedId })
         <Icon name="add" />
       </button>
     </div>
-    <div class="nav-tree" role="tree">
+    <div ref="treeBox" class="nav-tree" role="tree">
       <p v-if="!roots.length" class="nav-empty">还没有连接。可以新建一个 SQLite 文件或网络库。</p>
       <p v-else-if="filterMiss" class="nav-empty">没有匹配的连接。</p>
       <TreeNode v-for="node in roots" :key="node.id" :node="node" :depth="0" />
