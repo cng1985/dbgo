@@ -1,20 +1,20 @@
-const headerPattern = /(create(?:\s+or\s+(?:alter|replace))?|alter)\s+(proc|procedure|function)\b/i
+import { keywordSet, quoteIdent as quoteSQLIdent } from './sqlEditor.js'
+
+const routineWords = ['procedure', 'proc', 'function', 'user', 'comment', 'out', 'inout', 'returns', 'definer']
 
 function quoteIdent(driver, name) {
   const value = String(name || '').trim()
   if (!value) {
     return ''
   }
-  if (/^[\p{L}_][\p{L}\p{N}_]*$/u.test(value)) {
-    return value
+  if (driver === 'postgres' && value.toLowerCase() !== value) {
+    return '"' + value.replaceAll('"', '""') + '"'
   }
-  if (driver === 'mysql') {
-    return '`' + value.replaceAll('`', '``') + '`'
+  const words = new Set(keywordSet(driver))
+  for (const word of routineWords) {
+    words.add(word)
   }
-  if (driver === 'sqlserver') {
-    return '[' + value.replaceAll(']', ']]') + ']'
-  }
-  return '"' + value.replaceAll('"', '""') + '"'
+  return quoteSQLIdent(driver, value, words)
 }
 
 export function qualifyProcedure(driver, schema, name) {
@@ -91,37 +91,94 @@ function readIdent(sql, index) {
   return { text: match[0], end: index + match[0].length }
 }
 
+function skipQuoted(sql, index) {
+  const ch = sql[index]
+  if (ch !== '`' && ch !== '\'' && ch !== '"') {
+    return index
+  }
+  let i = index + 1
+  while (i < sql.length) {
+    if (sql[i] === ch && sql[i + 1] === ch) {
+      i += 2
+      continue
+    }
+    if (sql[i] === ch) {
+      return i + 1
+    }
+    i += 1
+  }
+  return sql.length
+}
+
+function skipAccount(sql, index) {
+  if (sql[index] === '`' || sql[index] === '\'' || sql[index] === '"') {
+    return skipQuoted(sql, index)
+  }
+  const ident = readIdent(sql, index)
+  if (!ident) {
+    return index
+  }
+  if (sql[ident.end] === '(') {
+    return matchParen(sql, ident.end)
+  }
+  return ident.end
+}
+
+function skipDefiner(sql, index) {
+  if (!/^definer\b/i.test(sql.slice(index))) {
+    return index
+  }
+  let i = skipTrivia(sql, index + 'definer'.length)
+  if (sql[i] !== '=') {
+    return index
+  }
+  i = skipAccount(sql, skipTrivia(sql, i + 1))
+  const at = skipTrivia(sql, i)
+  if (sql[at] === '@') {
+    i = skipAccount(sql, skipTrivia(sql, at + 1))
+  }
+  return skipTrivia(sql, i)
+}
+
 function matchHeader(sql) {
-  const found = headerPattern.exec(String(sql || ''))
-  if (!found) {
-    return null
-  }
-  let i = skipTrivia(sql, found.index + found[0].length)
-  const nameStart = i
-  const first = readIdent(sql, i)
-  if (!first) {
-    return null
-  }
-  i = first.end
-  let schema = ''
-  let name = first.text
-  const afterFirst = skipTrivia(sql, i)
-  if (sql[afterFirst] === '.') {
-    const second = readIdent(sql, skipTrivia(sql, afterFirst + 1))
-    if (second) {
-      schema = first.text
-      name = second.text
-      i = second.end
+  const source = String(sql || '')
+  const startPattern = /(create(?:\s+or\s+(?:alter|replace))?|alter)\b/gi
+  let found
+  while ((found = startPattern.exec(source))) {
+    const afterCreate = skipTrivia(source, found.index + found[0].length)
+    const routineAt = skipDefiner(source, afterCreate)
+    const routine = /^(proc|procedure|function)\b/i.exec(source.slice(routineAt))
+    if (!routine) {
+      continue
+    }
+    let i = skipTrivia(source, routineAt + routine[0].length)
+    const nameStart = i
+    const first = readIdent(source, i)
+    if (!first) {
+      continue
+    }
+    i = first.end
+    let schema = ''
+    let name = first.text
+    const afterFirst = skipTrivia(source, i)
+    if (source[afterFirst] === '.') {
+      const second = readIdent(source, skipTrivia(source, afterFirst + 1))
+      if (second) {
+        schema = first.text
+        name = second.text
+        i = second.end
+      }
+    }
+    return {
+      keywordStart: found.index,
+      keywordEnd: routineAt + routine[0].length,
+      nameStart,
+      nameEnd: i,
+      schema,
+      name
     }
   }
-  return {
-    keywordStart: found.index,
-    keywordEnd: found.index + found[0].length,
-    nameStart,
-    nameEnd: i,
-    schema,
-    name
-  }
+  return null
 }
 
 function matchParen(sql, start) {
@@ -321,13 +378,30 @@ function parseParam(chunk) {
     mode = word === 'inout' ? 'inout' : 'out'
     text = text.slice(0, suffix.index).trim()
   }
-  const named = /^@?([\p{L}_][\p{L}\p{N}_]*)\s+([\s\S]+)$/u.exec(text)
-  if (!named) {
+  let name = ''
+  let type = ''
+  if (text[0] === '@') {
+    const ident = readIdent(text, 1)
+    if (!ident) {
+      return null
+    }
+    name = ident.text
+    type = text.slice(ident.end)
+  } else {
+    const ident = readIdent(text, 0)
+    if (!ident) {
+      return null
+    }
+    name = ident.text
+    type = text.slice(ident.end)
+  }
+  type = type.trim().replace(/,$/, '')
+  if (!name || !type) {
     return null
   }
   return {
-    name: named[1],
-    type: named[2].trim().replace(/,$/, ''),
+    name,
+    type,
     mode: mode === 'in' ? 'in' : mode,
     comment
   }
@@ -361,7 +435,11 @@ export function setProcedureIdentity(sql, driver, schema, name) {
   if (!header || !proc) {
     return sql
   }
-  const qualified = qualifyProcedure(driver, schema, proc)
+  const owner = String(schema || '').trim()
+  if (header.name === proc && header.schema === owner) {
+    return sql
+  }
+  const qualified = qualifyProcedure(driver, owner, proc)
   return sql.slice(0, header.nameStart) + qualified + sql.slice(header.nameEnd)
 }
 
@@ -380,7 +458,7 @@ function formatParam(driver, param) {
     return `@${param.name} ${param.type}${output}`
   }
   const mode = String(param.mode || 'in').toUpperCase()
-  return `${mode} ${param.name} ${param.type}`
+  return `${mode} ${quoteIdent(driver, param.name)} ${param.type}`
 }
 
 function withComment(text, comment) {
@@ -490,7 +568,7 @@ export function procedureCommentSQL(driver, schema, name, description, params = 
 END`
   }
   if (driver === 'mysql') {
-    return `ALTER PROCEDURE ${quoteIdent(driver, proc)} COMMENT ${sqlString(description || '', false)}`
+    return `ALTER PROCEDURE ${qualifyProcedure(driver, schema, proc)} COMMENT ${sqlString(description || '', false)}`
   }
   if (driver === 'postgres') {
     const types = (params || []).map((item) => String(item.type || '').trim()).filter(Boolean).join(', ')

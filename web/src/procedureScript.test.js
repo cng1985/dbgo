@@ -88,5 +88,28 @@ test('描述语句会转义引号', () => {
   assert.match(sql, /N'用户的''订单'''/)
   assert.match(sql, /^BEGIN\n/)
   assert.match(sql, /sp_addextendedproperty/)
-  assert.match(procedureCommentSQL('mysql', 'shop', 'save_order', '备注'), /ALTER PROCEDURE save_order COMMENT '备注'/)
+  assert.match(procedureCommentSQL('mysql', 'shop', 'save_order', '备注'), /ALTER PROCEDURE shop\.save_order COMMENT '备注'/)
+  assert.match(procedureCommentSQL('mysql', 'order', 'save_order', '备注'), /ALTER PROCEDURE `order`\.save_order COMMENT '备注'/)
+})
+
+test('MySQL 带 DEFINER 的过程头仍能读出参数，保存时先删除', () => {
+  const shown = "CREATE DEFINER=`root`@`%` PROCEDURE `shop`.`save_order`(IN `order_id` int, OUT `msg` varchar(50))\nBEGIN\n  SET msg = 'ok';\nEND"
+  assert.equal(procedureName(shown), 'save_order')
+  assert.deepEqual(procedureParams(shown).map((item) => ({ name: item.name, mode: item.mode })), [
+    { name: 'order_id', mode: 'in' },
+    { name: 'msg', mode: 'out' }
+  ])
+  const saved = procedureSaveSQL('mysql', shown, { existing: true, schema: 'shop', name: 'save_order' })
+  assert.match(saved, /^DROP PROCEDURE IF EXISTS shop\.save_order;\nCREATE DEFINER=`root`@`%` PROCEDURE/)
+  assert.match(saved, /SET msg = 'ok'/)
+})
+
+test('PostgreSQL 大小写和保留字在改名时继续加引号', () => {
+  const sql = 'CREATE PROCEDURE "Sales"."SaveOrder"()\nLANGUAGE plpgsql\nAS $$\nBEGIN\n  NULL;\nEND;\n$$\n'
+  assert.equal(setProcedureIdentity(sql, 'postgres', 'Sales', 'SaveOrder'), sql)
+  const renamed = setProcedureIdentity(sql, 'postgres', 'Sales', 'SaveOrder2')
+  assert.match(renamed, /CREATE PROCEDURE "Sales"\."SaveOrder2"\(\)/)
+  assert.match(renamed, /NULL/)
+  assert.match(procedureTemplate('postgres', 'app', 'order'), /CREATE PROCEDURE app\."order"\(\)/)
+  assert.match(procedureTemplate('sqlserver', 'dbo', 'order'), /CREATE PROCEDURE dbo\.\[order\]\n/)
 })
