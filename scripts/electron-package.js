@@ -81,7 +81,10 @@ function isExecName(name) {
   if (normalized.endsWith('/')) {
     return false
   }
-  return execNames.has(path.posix.basename(normalized))
+  if (execNames.has(path.posix.basename(normalized))) {
+    return true
+  }
+  return normalized.includes('/Contents/MacOS/')
 }
 
 function findEocd(buf) {
@@ -116,10 +119,14 @@ function fixZip(file) {
       const made = buf.readUInt16LE(offset + 4)
       const attr = buf.readUInt32LE(offset + 38)
       const unix = (made >> 8) === 3
-      const mode = (attr >> 16) & 0o7777
-      if (!unix || (mode & 0o111) === 0) {
+      const high = attr >>> 16
+      const fileType = high & 0o170000
+      const mode = high & 0o7777
+      const symlinkOrDir = unix && (fileType === 0o120000 || fileType === 0o040000)
+      if (!symlinkOrDir && (!unix || (mode & 0o111) === 0)) {
+        const typeBits = unix && fileType !== 0 ? fileType : 0o100000
         buf.writeUInt16LE((made & 0xff) | (3 << 8), offset + 4)
-        const nextAttr = (((0o100755 << 16) >>> 0) | (attr & 0xffff)) >>> 0
+        const nextAttr = ((((typeBits | 0o755) << 16) >>> 0) | (attr & 0xffff)) >>> 0
         buf.writeUInt32LE(nextAttr, offset + 38)
         changed = true
       }
