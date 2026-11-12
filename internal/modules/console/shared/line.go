@@ -21,6 +21,12 @@ var (
 		regexp.MustCompile(`(?i)invalid column name '([^']+)'`),
 		regexp.MustCompile(`(?i)invalid object name '([^']+)'`),
 		regexp.MustCompile(`(?i)table '([^']+)' doesn't exist`),
+		regexp.MustCompile(`列名\s*'([^']+)'`),
+		regexp.MustCompile(`列名\s*‘([^’]+)’`),
+		regexp.MustCompile(`对象名\s*'([^']+)'`),
+		regexp.MustCompile(`对象名\s*‘([^’]+)’`),
+		regexp.MustCompile(`(?i)identifier "([^"]+)"`),
+		regexp.MustCompile(`名称\s*"([^"]+)"`),
 	}
 	nearPattern = regexp.MustCompile(`(?i)near ["']([^"']+)["']`)
 )
@@ -88,10 +94,14 @@ func failStatement(part sqlscript.Part, err error) error {
 
 // driverRelativeLine 读取驱动给出的语句内行号。没有可靠行号时返回 0，调用方就用语句起始行。
 func driverRelativeLine(statement string, err error) int {
+	// SQL Server 的列名错误经常把行号报成 1。大于 1 的行号才直接采用。
+	serverLine := 0
 	var numbered interface{ SQLErrorLineNo() int32 }
 	if errors.As(err, &numbered) && numbered != nil {
-		if n := int(numbered.SQLErrorLineNo()); n > 0 {
+		if n := int(numbered.SQLErrorLineNo()); n > 1 {
 			return n
+		} else if n == 1 {
+			serverLine = 1
 		}
 	}
 	var pg *pgconn.PgError
@@ -102,7 +112,10 @@ func driverRelativeLine(statement string, err error) int {
 	if line := lineInMessage(err); line > 0 {
 		return line
 	}
-	return lineOfErrorToken(statement, err)
+	if line := lineOfErrorToken(statement, err); line > 0 {
+		return line
+	}
+	return serverLine
 }
 
 func lineInMessage(err error) int {
