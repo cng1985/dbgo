@@ -187,6 +187,40 @@ func sqliteDefinition(ctx context.Context, db *sql.DB, schema, name, kind string
 	return strings.TrimSpace(sqlText.String), "", nil
 }
 
+// SQLiteViewTriggers 返回视图上的触发器定义。删除视图会一起删掉这些触发器，保存前要先读出来。
+func SQLiteViewTriggers(ctx context.Context, db *sql.DB, schema, name string) ([]string, error) {
+	if _, err := QuoteIdent("sqlite", name); err != nil {
+		return nil, fmt.Errorf("视图名无效")
+	}
+	master := "sqlite_master"
+	if schema != "" && !strings.EqualFold(schema, "main") {
+		quoted, err := QuoteIdent("sqlite", schema)
+		if err != nil {
+			return nil, fmt.Errorf("模式名无效")
+		}
+		master = quoted + ".sqlite_master"
+	}
+	rows, err := db.QueryContext(ctx, "select sql from "+master+" where type = 'trigger' and tbl_name = ? and sql is not null order by name", name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	triggers := []string{}
+	for rows.Next() {
+		var text sql.NullString
+		if err := rows.Scan(&text); err != nil {
+			return nil, err
+		}
+		if text.Valid && strings.TrimSpace(text.String) != "" {
+			triggers = append(triggers, strings.TrimSpace(text.String))
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return triggers, nil
+}
+
 func showCreate(ctx context.Context, db *sql.DB, schema, name, kind string) (string, error) {
 	qualified, err := Qualified("mysql", schema, name)
 	if err != nil {

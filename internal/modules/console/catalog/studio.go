@@ -67,6 +67,14 @@ func (r *Resource) Definition(ctx context.Context, search *CatalogSearch) (respo
 		}
 	}
 	columns := []CatalogColumnDraft{}
+	triggers := []string{}
+	if kind == "view" && shared.NormalizeDriver(target.Driver) == "sqlite" {
+		items, err := shared.SQLiteViewTriggers(ctx, target.DB, schema, search.Name)
+		if err != nil {
+			return zero, apperrors.Business(10002, apperrors.KindInvalid, shared.PublicError("读取视图触发器失败", "", err), err)
+		}
+		triggers = items
+	}
 	if kind == "table" {
 		items, err := shared.ListColumns(ctx, target.DB, target.Driver, schema, search.Name)
 		if err != nil {
@@ -94,6 +102,7 @@ func (r *Resource) Definition(ctx context.Context, search *CatalogSearch) (respo
 		ObjectID:    objectID,
 		Description: description,
 		Columns:     columns,
+		Triggers:    triggers,
 	}), nil
 }
 

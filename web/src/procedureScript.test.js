@@ -5,6 +5,7 @@ import {
   procedureCommentSQL,
   procedureName,
   procedureParams,
+  appendViewTriggers,
   procedureSaveSQL,
   procedureTemplate,
   setProcedureIdentity
@@ -132,6 +133,24 @@ test('视图用同一套来源编辑，保存时按视图语句覆盖', () => {
   assert.equal(procedureCommentSQL('postgres', 'app', 'city_names', '城市', [], 'view'), `COMMENT ON VIEW app.city_names IS '城市'`)
   assert.equal(procedureCommentSQL('mysql', 'shop', 'city_names', '城市', [], 'view'), '')
   assert.equal(procedureCommentSQL('sqlite', 'main', 'city_names', '城市', [], 'view'), '')
+  const optional = 'CREATE VIEW IF NOT EXISTS city_names AS\nSELECT 1 AS id'
+  assert.equal(procedureName(optional), 'city_names')
+  assert.equal(setProcedureIdentity(optional, 'sqlite', 'main', 'city_labels'), 'CREATE VIEW IF NOT EXISTS city_labels AS\nSELECT 1 AS id')
+  assert.match(procedureSaveSQL('sqlite', optional, { existing: true, schema: 'main', name: 'city_names', kind: 'view' }), /^DROP VIEW IF EXISTS city_names;\nCREATE VIEW IF NOT EXISTS city_names AS\nSELECT 1 AS id/)
+})
+
+test('保存 SQLite 视图时把触发器接回新建的视图', () => {
+  const script = procedureSaveSQL('sqlite', 'CREATE VIEW city_names AS\nSELECT 1 AS id', {
+    existing: true,
+    schema: 'main',
+    name: 'city_names',
+    kind: 'view'
+  })
+  const trigger = 'CREATE TRIGGER city_names_ins INSTEAD OF INSERT ON city_names BEGIN SELECT 1; END'
+  const saved = appendViewTriggers(script, [trigger, '  '])
+  assert.match(saved, /DROP VIEW IF EXISTS city_names;/)
+  assert.match(saved, /CREATE VIEW city_names AS/)
+  assert.match(saved, /CREATE TRIGGER city_names_ins INSTEAD OF INSERT ON city_names BEGIN SELECT 1; END;/)
 })
 
 test('描述语句会转义引号', () => {

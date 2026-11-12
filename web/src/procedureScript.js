@@ -179,6 +179,12 @@ function matchHeader(sql) {
       continue
     }
     let i = skipTrivia(source, routineAt + routine[0].length)
+    if (/^view$/i.test(routine[0])) {
+      const exists = /^if\s+not\s+exists\b/i.exec(source.slice(i))
+      if (exists) {
+        i = skipTrivia(source, i + exists[0].length)
+      }
+    }
     const nameStart = i
     const first = readIdent(source, i)
     if (!first) {
@@ -628,6 +634,21 @@ export function procedureSaveSQL(driver, sql, options = {}) {
     }
   }
   return script + '\n'
+}
+
+export function appendViewTriggers(script, triggers) {
+  const list = (triggers || []).map((item) => String(item || '').trim()).filter(Boolean)
+  if (!list.length) {
+    return script
+  }
+  let text = String(script || '').replace(/\s+$/, '')
+  if (text && !text.endsWith(';')) {
+    text += ';'
+  }
+  for (const item of list) {
+    text += '\n' + (item.endsWith(';') ? item : item + ';')
+  }
+  return text + '\n'
 }
 
 function sqlString(value, unicode) {

@@ -5,6 +5,7 @@ import { columnTypeFor, columnTypeOptions, defaultColumnType, matchColumnType } 
 import { nextAutoSchema, schemaPlaceholder } from '../catalogView.js'
 import ProcedureStudio from '../components/ProcedureStudio.vue'
 import {
+  appendViewTriggers,
   applyProcedureParams,
   procedureCommentSQL,
   procedureName,
@@ -490,6 +491,23 @@ async function saveProcedure() {
   }
   pending.value = true
   try {
+    if (driver.value === 'sqlite' && kind.value === 'view' && /\bdrop\s+view\b/i.test(script)) {
+      let triggers = []
+      try {
+        const defined = (await api('/api/catalog/definition', {
+          connection_id: connectionID.value,
+          schema: schema.value,
+          name: currentName,
+          kind: 'view'
+        })).data
+        triggers = defined.triggers || []
+      } catch (err) {
+        if (!String(err.message || '').includes('对象不存在')) {
+          throw err
+        }
+      }
+      script = appendViewTriggers(script, triggers)
+    }
     const result = (await api('/api/catalog/apply', {
       connection_id: connectionID.value,
       sql: script

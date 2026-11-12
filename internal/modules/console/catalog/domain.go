@@ -80,6 +80,7 @@ type CatalogDefinitionResponse struct {
 	ObjectID    string               `json:"object_id,omitempty"`
 	Description string               `json:"description,omitempty"`
 	Columns     []CatalogColumnDraft `json:"columns,omitempty"`
+	Triggers    []string             `json:"triggers,omitempty"`
 }
 
 type CatalogColumnDraft struct {
