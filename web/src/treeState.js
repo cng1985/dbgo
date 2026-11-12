@@ -102,6 +102,13 @@ function isTablesFolder(mark, connectionId, schema) {
     && (mark.schema || '') === (schema || '')
 }
 
+function isViewsFolder(mark, connectionId, schema) {
+  return !!mark
+    && mark.folder === 'views'
+    && String(mark.connectionId) === String(connectionId)
+    && (mark.schema || '') === (schema || '')
+}
+
 function isRoutineFolder(mark, connectionId, schema, kind) {
   const folder = kind === 'function' ? 'functions' : 'procedures'
   return !!mark
@@ -133,6 +140,21 @@ export function planTreeRefresh(openMarks, selectedMark, change) {
     return { open, selected }
   }
   const connectionId = String(change.connectionId)
+  if (change.kind === 'view') {
+    const viewShown = open.some((mark) => mark.kind === 'view' && mentionsTable(mark, connectionId, nextSchema, change.name))
+      || (selected && selected.kind === 'view' && mentionsTable(selected, connectionId, nextSchema, change.name))
+    const listShown = source.some((mark) => isViewsFolder(mark, connectionId, previousSchema))
+    if (!viewShown && !listShown) {
+      return { open, selected }
+    }
+    open.push(
+      { id: `c-${connectionId}`, kind: 'connection', folder: '', connectionId, schema: '', table: '', object: '', label: '' },
+      { id: `dbs-${connectionId}`, kind: 'folder', folder: 'databases', connectionId, schema: '', table: '', object: '', label: '数据库' },
+      { id: `s-${connectionId}-${nextSchema}`, kind: 'schema', folder: '', connectionId, schema: nextSchema, table: '', object: '', label: nextSchema },
+      { id: `views-${connectionId}-${nextSchema}`, kind: 'folder', folder: 'views', connectionId, schema: nextSchema, table: '', object: '', label: '视图' }
+    )
+    return { open, selected }
+  }
   if (change.kind === 'procedure' || change.kind === 'function') {
     const folder = change.kind === 'function' ? 'functions' : 'procedures'
     const folderId = change.kind === 'function' ? 'funcs' : 'procs'

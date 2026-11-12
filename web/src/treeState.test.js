@@ -135,6 +135,23 @@ test('存储过程换模式时展开新的过程列表', () => {
   assert.ok(plan.open.some((item) => item.folder === 'procedures' && item.schema === 'dbo'))
 })
 
+test('视图换模式时展开新的视图列表，不打开表列表', () => {
+  const moved = {
+    connectionId: '7',
+    previousSchema: 'main',
+    previousName: 'city_names',
+    schema: 'archive',
+    name: 'city_names',
+    kind: 'view'
+  }
+  const open = [
+    place('views-7-main', { folder: 'views', schema: 'main', label: '视图' })
+  ]
+  const plan = planTreeRefresh(open, null, moved)
+  assert.ok(plan.open.some((item) => item.folder === 'views' && item.schema === 'archive' && item.id === 'views-7-archive'))
+  assert.equal(plan.open.some((item) => item.folder === 'tables'), false)
+})
+
 test('刷新导航时保留已展开的子节点，并换上新的过程名', () => {
   const column = { id: 'col-id', kind: 'column', label: 'id', leaf: true }
   const columns = { id: 'cols', kind: 'folder', folder: 'columns', loaded: true, children: [column] }

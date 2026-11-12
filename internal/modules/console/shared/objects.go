@@ -187,6 +187,40 @@ func sqliteDefinition(ctx context.Context, db *sql.DB, schema, name, kind string
 	return strings.TrimSpace(sqlText.String), "", nil
 }
 
+// SQLiteViewTriggers 返回视图上的触发器定义。删除视图会一起删掉这些触发器，保存前要先读出来。
+func SQLiteViewTriggers(ctx context.Context, db *sql.DB, schema, name string) ([]string, error) {
+	if _, err := QuoteIdent("sqlite", name); err != nil {
+		return nil, fmt.Errorf("视图名无效")
+	}
+	master := "sqlite_master"
+	if schema != "" && !strings.EqualFold(schema, "main") {
+		quoted, err := QuoteIdent("sqlite", schema)
+		if err != nil {
+			return nil, fmt.Errorf("模式名无效")
+		}
+		master = quoted + ".sqlite_master"
+	}
+	rows, err := db.QueryContext(ctx, "select sql from "+master+" where type = 'trigger' and tbl_name = ? and sql is not null order by name", name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	triggers := []string{}
+	for rows.Next() {
+		var text sql.NullString
+		if err := rows.Scan(&text); err != nil {
+			return nil, err
+		}
+		if text.Valid && strings.TrimSpace(text.String) != "" {
+			triggers = append(triggers, strings.TrimSpace(text.String))
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return triggers, nil
+}
+
 func showCreate(ctx context.Context, db *sql.DB, schema, name, kind string) (string, error) {
 	qualified, err := Qualified("mysql", schema, name)
 	if err != nil {
@@ -420,16 +454,19 @@ func longestText(ctx context.Context, db *sql.DB, query string, args ...any) (st
 	return strings.TrimSpace(best), nil
 }
 
-// RoutineMeta 读取存储过程或函数的编号和说明。SQLite 没有这类对象。
-// 说明读不到时返回空字符串，不代替定义本身失败。
+// RoutineMeta 读取存储过程、函数或视图的编号和说明。
+// SQLite 没有对象编号，MySQL 视图也没有可写的说明。说明读不到时返回空字符串，不代替定义本身失败。
 func RoutineMeta(ctx context.Context, db *sql.DB, driver, schema, name, kind string) (string, string, error) {
 	driver = NormalizeDriver(driver)
 	kind = strings.ToLower(strings.TrimSpace(kind))
-	if driver == "" || driver == "sqlite" || (kind != "procedure" && kind != "function") {
+	if driver == "" || driver == "sqlite" || (kind != "procedure" && kind != "function" && kind != "view") {
 		return "", "", nil
 	}
 	switch driver {
 	case "mysql":
+		if kind == "view" {
+			return "", "", nil
+		}
 		routineType := "PROCEDURE"
 		if kind == "function" {
 			routineType = "FUNCTION"
@@ -447,6 +484,22 @@ func RoutineMeta(ctx context.Context, db *sql.DB, driver, schema, name, kind str
 		}
 		return "", strings.TrimSpace(comment.String), nil
 	case "postgres":
+		if kind == "view" {
+			var objectID, comment sql.NullString
+			query := RewritePlaceholders(driver, `select c.oid::text, obj_description(c.oid, 'pg_class')
+				from pg_class c
+				join pg_namespace n on n.oid = c.relnamespace
+				where n.nspname = ? and c.relname = ? and c.relkind = 'v'
+				limit 1`)
+			err := db.QueryRowContext(ctx, query, schema, name).Scan(&objectID, &comment)
+			if errors.Is(err, sql.ErrNoRows) {
+				return "", "", nil
+			}
+			if err != nil {
+				return "", "", err
+			}
+			return strings.TrimSpace(objectID.String), strings.TrimSpace(comment.String), nil
+		}
 		prokind := "f"
 		if kind == "procedure" {
 			prokind = "p"
@@ -467,8 +520,11 @@ func RoutineMeta(ctx context.Context, db *sql.DB, driver, schema, name, kind str
 		return strings.TrimSpace(objectID.String), strings.TrimSpace(comment.String), nil
 	default:
 		filter := "o.type = 'P'"
-		if kind == "function" {
+		switch kind {
+		case "function":
 			filter = "o.type in ('FN', 'IF', 'TF')"
+		case "view":
+			filter = "o.type = 'V'"
 		}
 		var objectID, comment sql.NullString
 		query := RewritePlaceholders(driver, `select convert(varchar(32), o.object_id), convert(nvarchar(4000), ep.value)

@@ -1,6 +1,6 @@
 import { keywordSet, quoteIdent as quoteSQLIdent } from './sqlEditor.js'
 
-const routineWords = ['procedure', 'proc', 'function', 'user', 'comment', 'out', 'inout', 'returns', 'definer']
+const routineWords = ['procedure', 'proc', 'function', 'view', 'user', 'comment', 'out', 'inout', 'returns', 'definer', 'algorithm', 'security']
 
 function quoteIdent(driver, name) {
   const value = String(name || '').trim()
@@ -20,7 +20,7 @@ function quoteIdent(driver, name) {
 export function qualifyProcedure(driver, schema, name) {
   const proc = quoteIdent(driver, name)
   const owner = String(schema || '').trim()
-  if (!proc || !owner || driver === 'sqlite') {
+  if (!proc || !owner || (driver === 'sqlite' && owner.toLowerCase() === 'main')) {
     return proc
   }
   return quoteIdent(driver, owner) + '.' + proc
@@ -140,18 +140,51 @@ function skipDefiner(sql, index) {
   return skipTrivia(sql, i)
 }
 
+function skipViewModifiers(sql, index) {
+  let i = index
+  while (i < sql.length) {
+    const afterDefiner = skipDefiner(sql, i)
+    if (afterDefiner !== i) {
+      i = skipTrivia(sql, afterDefiner)
+      continue
+    }
+    if (/^algorithm\s*=/i.test(sql.slice(i))) {
+      const eq = sql.slice(i).indexOf('=')
+      const ident = readIdent(sql, skipTrivia(sql, i + eq + 1))
+      if (!ident) {
+        break
+      }
+      i = skipTrivia(sql, ident.end)
+      continue
+    }
+    const security = /^sql\s+security\s+(definer|invoker)\b/i.exec(sql.slice(i))
+    if (security) {
+      i = skipTrivia(sql, i + security[0].length)
+      continue
+    }
+    break
+  }
+  return i
+}
+
 function matchHeader(sql) {
   const source = String(sql || '')
   const startPattern = /(create(?:\s+or\s+(?:alter|replace))?|alter)\b/gi
   let found
   while ((found = startPattern.exec(source))) {
     const afterCreate = skipTrivia(source, found.index + found[0].length)
-    const routineAt = skipDefiner(source, afterCreate)
-    const routine = /^(proc|procedure|function)\b/i.exec(source.slice(routineAt))
+    const routineAt = skipViewModifiers(source, afterCreate)
+    const routine = /^(proc|procedure|function|view)\b/i.exec(source.slice(routineAt))
     if (!routine) {
       continue
     }
     let i = skipTrivia(source, routineAt + routine[0].length)
+    if (/^view$/i.test(routine[0])) {
+      const exists = /^if\s+not\s+exists\b/i.exec(source.slice(i))
+      if (exists) {
+        i = skipTrivia(source, i + exists[0].length)
+      }
+    }
     const nameStart = i
     const first = readIdent(source, i)
     if (!first) {
@@ -417,9 +450,18 @@ function routineWord(kind) {
 
 export function procedureTemplate(driver, schema, name, kind = 'procedure') {
   const routine = routineKind(kind)
-  const proc = String(name || '').trim() || (routine === 'function' ? 'new_function' : 'new_procedure')
+  const proc = String(name || '').trim() || (kind === 'view' ? 'new_view' : (routine === 'function' ? 'new_function' : 'new_procedure'))
   const qualified = qualifyProcedure(driver, schema, proc)
   if (!qualified) {
+    return ''
+  }
+  if (kind === 'view') {
+    if (driver === 'sqlserver') {
+      return `CREATE VIEW ${qualified}\nAS\nSELECT 1 AS id\n`
+    }
+    if (driver === 'postgres' || driver === 'mysql' || driver === 'sqlite') {
+      return `CREATE VIEW ${qualified} AS\nSELECT 1 AS id\n`
+    }
     return ''
   }
   const word = routineWord(routine)
@@ -537,6 +579,30 @@ export function applyProcedureParams(sql, driver, params, kind = 'procedure') {
   return sql.slice(0, region.start) + formatted + sql.slice(region.end)
 }
 
+function rewriteExistingView(driver, script, header, keyword, options) {
+  const replaced = /\bor\s+(?:alter|replace)\b/.test(keyword)
+  const created = keyword.startsWith('create')
+  const between = script.slice(header.keywordEnd, header.nameStart)
+  const ifNotExists = /\bif\s+not\s+exists\b/i.test(between)
+  const dropped = /\bdrop\s+view\b/i.test(script.slice(0, header.keywordStart))
+  if ((driver === 'sqlite' || ifNotExists) && !dropped) {
+    const qualified = qualifyProcedure(driver, options.schema, options.name || header.name)
+    if (qualified) {
+      return `DROP VIEW IF EXISTS ${qualified};\n${script}`
+    }
+  }
+  if (!created || replaced || ifNotExists) {
+    return script
+  }
+  if (driver === 'sqlserver' && keyword === 'create view') {
+    return script.slice(0, header.keywordStart) + 'CREATE OR ALTER VIEW' + script.slice(header.keywordEnd)
+  }
+  if (driver === 'postgres' || driver === 'mysql') {
+    return script.slice(0, header.keywordStart) + 'CREATE OR REPLACE' + script.slice(header.keywordStart + 'create'.length)
+  }
+  return script
+}
+
 export function procedureSaveSQL(driver, sql, options = {}) {
   let script = String(sql || '').replace(/\s+$/, '')
   if (!script) {
@@ -546,6 +612,10 @@ export function procedureSaveSQL(driver, sql, options = {}) {
     const header = matchHeader(script)
     if (header) {
       const keyword = script.slice(header.keywordStart, header.keywordEnd).toLowerCase().replace(/\s+/g, ' ')
+      if (/\bview$/.test(keyword)) {
+        script = rewriteExistingView(driver, script, header, keyword, options)
+        return script + '\n'
+      }
       const routine = /\bfunction$/.test(keyword)
         ? 'function'
         : (/\bproc(?:edure)?$/.test(keyword) ? 'procedure' : routineKind(options.kind))
@@ -566,12 +636,58 @@ export function procedureSaveSQL(driver, sql, options = {}) {
   return script + '\n'
 }
 
+export function appendViewTriggers(script, triggers) {
+  const list = (triggers || []).map((item) => String(item || '').trim()).filter(Boolean)
+  if (!list.length) {
+    return script
+  }
+  let text = String(script || '').replace(/\s+$/, '')
+  if (text && !text.endsWith(';')) {
+    text += ';'
+  }
+  for (const item of list) {
+    text += '\n' + (item.endsWith(';') ? item : item + ';')
+  }
+  return text + '\n'
+}
+
 function sqlString(value, unicode) {
   const text = String(value ?? '').replaceAll('\'', '\'\'')
   return (unicode ? 'N' : '') + `'${text}'`
 }
 
+function viewCommentSQL(driver, schema, name, description) {
+  const view = String(name || '').trim()
+  if (!view) {
+    return ''
+  }
+  if (driver === 'sqlserver') {
+    const owner = sqlString(schema || 'dbo', true)
+    const objectName = sqlString(view, true)
+    const text = sqlString(description || '', true)
+    return `BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM sys.extended_properties ep
+    INNER JOIN sys.objects o ON o.object_id = ep.major_id AND ep.minor_id = 0
+    INNER JOIN sys.schemas s ON s.schema_id = o.schema_id
+    WHERE ep.name = N'MS_Description' AND s.name = ${owner} AND o.name = ${objectName}
+  )
+    EXEC sys.sp_updateextendedproperty @name = N'MS_Description', @value = ${text}, @level0type = N'SCHEMA', @level0name = ${owner}, @level1type = N'VIEW', @level1name = ${objectName};
+  ELSE
+    EXEC sys.sp_addextendedproperty @name = N'MS_Description', @value = ${text}, @level0type = N'SCHEMA', @level0name = ${owner}, @level1type = N'VIEW', @level1name = ${objectName};
+END`
+  }
+  if (driver === 'postgres') {
+    return `COMMENT ON VIEW ${qualifyProcedure(driver, schema, view)} IS ${sqlString(description || '', false)}`
+  }
+  return ''
+}
+
 export function procedureCommentSQL(driver, schema, name, description, params = [], kind = 'procedure') {
+  if (kind === 'view') {
+    return viewCommentSQL(driver, schema, name, description)
+  }
   const proc = String(name || '').trim()
   if (!proc) {
     return ''

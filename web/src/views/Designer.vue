@@ -5,6 +5,7 @@ import { columnTypeFor, columnTypeOptions, defaultColumnType, matchColumnType } 
 import { nextAutoSchema, schemaPlaceholder } from '../catalogView.js'
 import ProcedureStudio from '../components/ProcedureStudio.vue'
 import {
+  appendViewTriggers,
   applyProcedureParams,
   procedureCommentSQL,
   procedureName,
@@ -38,7 +39,18 @@ const selectedConnection = computed(() => props.connections.find((item) => item.
 const driver = computed(() => selectedConnection.value?.driver || 'sqlite')
 const schemaHint = computed(() => schemaPlaceholder(driver.value, selectedConnection.value?.database_name || ''))
 const autoSchema = ref('')
+function studioKind(value) {
+  return value === 'procedure' || value === 'function' || value === 'view'
+}
+
+function studioLabel(value) {
+  if (value === 'function') return '函数'
+  if (value === 'view') return '视图'
+  return '存储过程'
+}
+
 const isRoutine = computed(() => kind.value === 'procedure' || kind.value === 'function')
+const isStudio = computed(() => studioKind(kind.value))
 const sqliteRoutine = computed(() => driver.value === 'sqlite' && isRoutine.value)
 
 function blankColumn(primary = false) {
@@ -107,7 +119,7 @@ function syncAutoSchema() {
   )
   schema.value = next.schema
   autoSchema.value = next.autoSchema
-  if (isRoutine.value && !procedureExisting.value && sql.value.trim()) {
+  if (isStudio.value && !procedureExisting.value && sql.value.trim()) {
     const proc = name.value.trim() || procedureName(sql.value)
     if (proc) {
       sql.value = setProcedureIdentity(sql.value, driver.value, schema.value, proc)
@@ -132,7 +144,7 @@ watch(driver, (value, previous) => {
     return
   }
   syncAutoSchema()
-  if (isRoutine.value && !procedureExisting.value && (!sql.value.trim() || sql.value === procedureDraft.value)) {
+  if (isStudio.value && !procedureExisting.value && (!sql.value.trim() || sql.value === procedureDraft.value)) {
     sql.value = procedureTemplate(value, schema.value, name.value, kind.value)
     procedureDraft.value = sql.value
   }
@@ -186,7 +198,7 @@ watch(() => props.command, async (command) => {
   objectId.value = ''
   savedDescription.value = ''
   procedureExisting.value = false
-  procedureSavedName.value = command.type === 'edit' && (command.kind === 'procedure' || command.kind === 'function') ? (command.name || '') : ''
+  procedureSavedName.value = command.type === 'edit' && studioKind(command.kind) ? (command.name || '') : ''
   procedureSavedSchema.value = procedureSavedName.value ? schema.value : ''
   procedureDraft.value = ''
   if (command.type === 'edit' && command.name) {
@@ -195,7 +207,7 @@ watch(() => props.command, async (command) => {
     baselineColumns.value = null
     columns.value = [blankColumn(true)]
     sql.value = ''
-    if (isRoutine.value) {
+    if (isStudio.value) {
       sql.value = procedureTemplate(driver.value, schema.value, name.value, kind.value)
       procedureDraft.value = sql.value
     }
@@ -203,8 +215,7 @@ watch(() => props.command, async (command) => {
 }, { immediate: true })
 
 watch(kind, (value, previous) => {
-  const routine = value === 'procedure' || value === 'function'
-  if (!routine || !previous || previous === value || procedureExisting.value) {
+  if (!studioKind(value) || !previous || previous === value || procedureExisting.value) {
     return
   }
   sql.value = procedureTemplate(driver.value, schema.value, name.value, value)
@@ -221,7 +232,7 @@ function onProcedureName(value) {
 
 function onProcedureSchema(value) {
   schema.value = value
-  if (!isRoutine.value || !name.value.trim()) {
+  if (!isStudio.value || !name.value.trim()) {
     return
   }
   sql.value = setProcedureIdentity(sql.value, driver.value, value, name.value.trim())
@@ -288,7 +299,7 @@ async function loadDefinition() {
       kind: kind.value
     })).data
     sql.value = result.sql || ''
-    if (isRoutine.value) {
+    if (isStudio.value) {
       description.value = result.description || ''
       savedDescription.value = description.value
       objectId.value = result.object_id || ''
@@ -298,7 +309,7 @@ async function loadDefinition() {
     if (result.schema) {
       schema.value = result.schema
     }
-    if (isRoutine.value) {
+    if (isStudio.value) {
       procedureSavedName.value = name.value
       procedureSavedSchema.value = schema.value
     }
@@ -444,9 +455,10 @@ async function saveProcedure() {
     error.value = '请选择连接'
     return
   }
+  const label = studioLabel(kind.value)
   const currentName = name.value.trim() || procedureName(sql.value)
   if (!currentName) {
-    error.value = kind.value === 'function' ? '请填写函数名称' : '请填写存储过程名称'
+    error.value = `请填写${label}名称`
     return
   }
   name.value = currentName
@@ -458,32 +470,52 @@ async function saveProcedure() {
     kind: kind.value
   })
   if (!script.trim()) {
-    error.value = kind.value === 'function' ? '函数来源不能为空' : '存储过程来源不能为空'
+    error.value = `${label}来源不能为空`
     return
   }
+  let unsupportedDescription = false
   if (description.value !== savedDescription.value) {
-    const comment = procedureCommentSQL(driver.value, schema.value, currentName, description.value, procedureParams(sql.value), kind.value)
+    const comment = procedureCommentSQL(driver.value, schema.value, currentName, description.value, kind.value === 'view' ? [] : procedureParams(sql.value), kind.value)
     if (comment) {
       script = script.replace(/\s+$/, '')
       if (!script.endsWith(';')) {
         script += ';'
       }
       script += '\n' + comment + '\n'
+    } else if (kind.value === 'view' && description.value.trim()) {
+      unsupportedDescription = true
     }
   }
-  const label = kind.value === 'function' ? '函数' : '存储过程'
   if (!window.confirm(`将在目标库保存${label}「${currentName}」。`)) {
     return
   }
   pending.value = true
   try {
+    if (driver.value === 'sqlite' && kind.value === 'view' && /\bdrop\s+view\b/i.test(script)) {
+      let triggers = []
+      try {
+        const defined = (await api('/api/catalog/definition', {
+          connection_id: connectionID.value,
+          schema: schema.value,
+          name: currentName,
+          kind: 'view'
+        })).data
+        triggers = defined.triggers || []
+      } catch (err) {
+        if (!String(err.message || '').includes('对象不存在')) {
+          throw err
+        }
+      }
+      script = appendViewTriggers(script, triggers)
+    }
     const result = (await api('/api/catalog/apply', {
       connection_id: connectionID.value,
       sql: script
     })).data
     procedureExisting.value = true
     savedDescription.value = description.value
-    note.value = `已保存${label}，执行 ${result.statements} 条语句，耗时 ${result.duration_ms} ms`
+    const savedNote = `已保存${label}，执行 ${result.statements} 条语句，耗时 ${result.duration_ms} ms${unsupportedDescription ? '。这个数据库不会保存视图描述' : ''}`
+    note.value = savedNote
     const previousName = procedureSavedName.value
     const previousSchema = procedureSavedSchema.value
     const samePlace = previousName === currentName && previousSchema === schema.value
@@ -500,7 +532,7 @@ async function saveProcedure() {
       })
     }
     await loadDefinition()
-    note.value = `已保存${label}，执行 ${result.statements} 条语句，耗时 ${result.duration_ms} ms`
+    note.value = savedNote
   } catch (err) {
     error.value = err.message
   } finally {
@@ -540,9 +572,9 @@ async function apply() {
 </script>
 
 <template>
-  <div class="page" :class="{ 'procedure-page': isRoutine }">
+  <div class="page" :class="{ 'procedure-page': isStudio }">
     <ProcedureStudio
-      v-if="isRoutine"
+      v-if="isStudio"
       :kind="kind"
       :connections="connections"
       :connection-id="connectionID"
@@ -624,11 +656,6 @@ async function apply() {
           </tbody>
         </table>
       </div>
-    </div>
-
-    <div v-else-if="kind === 'view'" class="card">
-      <h2>视图查询</h2>
-      <label class="field"><span>SELECT</span><textarea v-model="selectSQL" class="sql-box" /></label>
     </div>
 
     <label class="field">

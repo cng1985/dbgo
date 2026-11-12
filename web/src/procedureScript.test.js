@@ -5,6 +5,7 @@ import {
   procedureCommentSQL,
   procedureName,
   procedureParams,
+  appendViewTriggers,
   procedureSaveSQL,
   procedureTemplate,
   setProcedureIdentity
@@ -107,6 +108,49 @@ test('函数用同一套来源模板，保存时改成函数语句', () => {
   assert.match(rewritten, /@amount decimal\(18, 2\) -- 金额/)
   assert.match(rewritten, /RETURNS int/)
   assert.match(rewritten, /RETURN 0/)
+})
+
+test('视图用同一套来源编辑，保存时按视图语句覆盖', () => {
+  const sql = procedureTemplate('sqlserver', 'dbo', 'city_names', 'view')
+  assert.match(sql, /^CREATE VIEW dbo\.city_names\nAS\nSELECT 1 AS id\n/)
+  assert.equal(procedureName(sql), 'city_names')
+  const renamed = setProcedureIdentity(sql, 'sqlserver', 'dbo', 'city_labels')
+  assert.match(renamed, /CREATE VIEW dbo\.city_labels\nAS\nSELECT 1 AS id/)
+  assert.match(procedureSaveSQL('sqlserver', sql, { existing: true, kind: 'view' }), /^CREATE OR ALTER VIEW dbo\.city_names\nAS\nSELECT 1 AS id/)
+  const postgres = procedureTemplate('postgres', 'app', 'city_names', 'view')
+  assert.match(procedureSaveSQL('postgres', postgres, { existing: true, kind: 'view' }), /^CREATE OR REPLACE VIEW app\.city_names AS\nSELECT 1 AS id/)
+  assert.equal(
+    procedureSaveSQL('postgres', 'CREATE OR REPLACE VIEW app.city_names AS\nSELECT 1', { existing: true, kind: 'view' }),
+    'CREATE OR REPLACE VIEW app.city_names AS\nSELECT 1\n'
+  )
+  const mysql = `CREATE ALGORITHM=UNDEFINED DEFINER=\`root\`@\`localhost\` SQL SECURITY DEFINER VIEW \`shop\`.\`city_names\` AS select 1 as id`
+  assert.equal(procedureName(mysql), 'city_names')
+  assert.match(procedureSaveSQL('mysql', mysql, { existing: true, schema: 'shop', name: 'city_names', kind: 'view' }), /^CREATE OR REPLACE ALGORITHM=UNDEFINED DEFINER=/)
+  const sqlite = procedureTemplate('sqlite', 'main', 'city_names', 'view')
+  assert.match(sqlite, /^CREATE VIEW city_names AS\nSELECT 1 AS id\n/)
+  assert.match(procedureSaveSQL('sqlite', sqlite, { existing: true, schema: 'main', name: 'city_names', kind: 'view' }), /^DROP VIEW IF EXISTS city_names;\nCREATE VIEW city_names AS/)
+  assert.match(procedureCommentSQL('sqlserver', 'dbo', 'city_names', '城市', [], 'view'), /N'VIEW'/)
+  assert.equal(procedureCommentSQL('postgres', 'app', 'city_names', '城市', [], 'view'), `COMMENT ON VIEW app.city_names IS '城市'`)
+  assert.equal(procedureCommentSQL('mysql', 'shop', 'city_names', '城市', [], 'view'), '')
+  assert.equal(procedureCommentSQL('sqlite', 'main', 'city_names', '城市', [], 'view'), '')
+  const optional = 'CREATE VIEW IF NOT EXISTS city_names AS\nSELECT 1 AS id'
+  assert.equal(procedureName(optional), 'city_names')
+  assert.equal(setProcedureIdentity(optional, 'sqlite', 'main', 'city_labels'), 'CREATE VIEW IF NOT EXISTS city_labels AS\nSELECT 1 AS id')
+  assert.match(procedureSaveSQL('sqlite', optional, { existing: true, schema: 'main', name: 'city_names', kind: 'view' }), /^DROP VIEW IF EXISTS city_names;\nCREATE VIEW IF NOT EXISTS city_names AS\nSELECT 1 AS id/)
+})
+
+test('保存 SQLite 视图时把触发器接回新建的视图', () => {
+  const script = procedureSaveSQL('sqlite', 'CREATE VIEW city_names AS\nSELECT 1 AS id', {
+    existing: true,
+    schema: 'main',
+    name: 'city_names',
+    kind: 'view'
+  })
+  const trigger = 'CREATE TRIGGER city_names_ins INSTEAD OF INSERT ON city_names BEGIN SELECT 1; END'
+  const saved = appendViewTriggers(script, [trigger, '  '])
+  assert.match(saved, /DROP VIEW IF EXISTS city_names;/)
+  assert.match(saved, /CREATE VIEW city_names AS/)
+  assert.match(saved, /CREATE TRIGGER city_names_ins INSTEAD OF INSERT ON city_names BEGIN SELECT 1; END;/)
 })
 
 test('描述语句会转义引号', () => {
