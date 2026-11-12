@@ -8,6 +8,7 @@ const fs = require('fs')
 const http = require('http')
 const net = require('net')
 const path = require('path')
+const { childEnv } = require('./env')
 const { binaryName } = require('./paths')
 
 const readyTimeoutMs = 30000
@@ -34,14 +35,6 @@ function configDirectory() {
     return path.join(process.resourcesPath, 'configs')
   }
   return path.join(__dirname, 'resources', 'configs')
-}
-
-function childEnv() {
-  const env = { ...process.env }
-  for (const key of ['APP_PROFILE', 'APP_BASE_DIR', 'APP_CONFIG_DIR', 'APP_DATA_DIR', 'APP_SERVER_HOST', 'APP_SERVER_PORT', 'APP_AUTH_ADMIN_PASSWORD']) {
-    delete env[key]
-  }
-  return env
 }
 
 function freePort() {
@@ -145,9 +138,11 @@ async function startBackend() {
     '--config-dir', configDirectory(),
     '--data-dir', dataDir,
     '--set', 'server.host=127.0.0.1',
-    '--set', `server.port=${port}`
+    '--set', `server.port=${port}`,
+    '--set', 'database.driver=sqlite',
+    '--set', 'database.sqlite.path=app.db'
   ], {
-    env: childEnv(),
+    env: childEnv(process.env),
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe']
   })

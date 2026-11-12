@@ -25,6 +25,7 @@
     "files": [
       "main.js",
       "paths.js",
+      "env.js",
       "package.json"
     ],
     "extraResources": [

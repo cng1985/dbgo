@@ -67,7 +67,7 @@ Windows CMD 使用 `scripts\build-platforms.cmd`。脚本不依赖当前工作�
 
 产物在 `electron/dist/`。macOS 包未签名。Windows 是压缩包，不需要安装程序。只编当前系统时加 `--current`。
 
-桌面窗口监听 `127.0.0.1` 的空闲端口，不使用生产 profile，因此会话 Cookie 可以在本机页面上保存。数据目录在 Electron 的 `userData/data`，日志在 `userData/logs/dbgo.log`。第一次启动生成 `initial-admin-password.txt`，并用对话框给出 `admin` 和口令。关闭窗口时结束服务程序。Windows 压缩包不签名，在 Linux 上打包不需要 Wine。
+桌面窗口监听 `127.0.0.1` 的空闲端口，不使用生产 profile，因此会话 Cookie 可以在本机页面上保存。启动时丢掉继承的 `APP_` 环境变量，应用库固定为用户目录里的 SQLite，不会沿用本机服务的数据库连接。数据目录在 Electron 的 `userData/data`，日志在 `userData/logs/dbgo.log`。第一次启动生成 `initial-admin-password.txt`，并用对话框给出 `admin` 和口令。关闭窗口时结束服务程序。Windows 压缩包不签名，在 Linux 上打包不需要 Wine。
 
 本机已用 Linux x64 的解包目录启动窗口，登录后进入工作台，关闭窗口后本机服务一起退出。Windows 和 macOS 的压缩包是在 Linux 上生成的，并用 `file` 核对过里面的服务程序分别是 Windows x64、macOS x64 和 macOS arm64。没有在 Windows 或 Mac 上打开过这些包。
 
