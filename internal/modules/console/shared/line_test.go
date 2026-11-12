@@ -116,6 +116,15 @@ func TestFailStatementKeepsStartLineWithoutDriverLine(t *testing.T) {
 	}
 }
 
+func TestLineOfRuneCountsCarriageReturnOnce(t *testing.T) {
+	if line := lineOfRune("select\r\nbad", 9); line != 2 {
+		t.Fatalf("回车换行后的行号 = %d", line)
+	}
+	if line := lineOfRune("select\rbad", 8); line != 2 {
+		t.Fatalf("单独回车后的行号 = %d", line)
+	}
+}
+
 func TestLineOfRuneClampsPastEnd(t *testing.T) {
 	if got := lineOfRune("select\nbad", 100); got != 2 {
 		t.Fatalf("超出文本时应落到最后一行，得到 %d", got)

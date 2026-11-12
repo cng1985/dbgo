@@ -36,8 +36,8 @@ func (r *Resource) Execute(ctx context.Context, request *QueryExecuteRequest) (r
 	if request == nil || request.ConnectionID <= 0 {
 		return zero, apperrors.Invalid("请选择连接")
 	}
-	// 保留原文里的空行，只把回车统一成换行。行号按编辑器里的文本计算。
-	sqlText := shared.NormalizeNewlines(request.SQL)
+	// 保留原文，包括字符串里的回车。行号按编辑器的换行规则计算，不改要执行的 SQL。
+	sqlText := request.SQL
 	if strings.TrimSpace(sqlText) == "" {
 		return zero, apperrors.Invalid("SQL 不能为空")
 	}

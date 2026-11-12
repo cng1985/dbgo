@@ -25,15 +25,6 @@ var (
 	nearPattern = regexp.MustCompile(`(?i)near ["']([^"']+)["']`)
 )
 
-// NormalizeNewlines 把回车换成编辑器使用的换行，避免 Windows 文本被看成一行。
-func NormalizeNewlines(sql string) string {
-	if !strings.ContainsRune(sql, '\r') {
-		return sql
-	}
-	sql = strings.ReplaceAll(sql, "\r\n", "\n")
-	return strings.ReplaceAll(sql, "\r", "\n")
-}
-
 // lineError 记下失败语句在原脚本中的行号，对外仍返回驱动或校验给出的原文。
 type lineError struct {
 	Line int
@@ -173,13 +164,13 @@ func tokenLines(statement, token string) []int {
 	line := 1
 	for i := 0; i < len(runes); {
 		ch := runes[i]
-		if ch == '\n' {
+		if sqlscript.CountsAsLineBreak(ch, nextRune(runes, i)) {
 			line++
 			i++
 			continue
 		}
 		if ch == '-' && i+1 < len(runes) && runes[i+1] == '-' {
-			for i < len(runes) && runes[i] != '\n' {
+			for i < len(runes) && runes[i] != '\n' && runes[i] != '\r' {
 				i++
 			}
 			continue
@@ -187,7 +178,7 @@ func tokenLines(statement, token string) []int {
 		if ch == '/' && i+1 < len(runes) && runes[i+1] == '*' {
 			i += 2
 			for i+1 < len(runes) && !(runes[i] == '*' && runes[i+1] == '/') {
-				if runes[i] == '\n' {
+				if sqlscript.CountsAsLineBreak(runes[i], nextRune(runes, i)) {
 					line++
 				}
 				i++
@@ -245,7 +236,7 @@ func readIdentQuote(runes []rune, i int, line *int) (int, string, int) {
 	var inner []rune
 	for i < len(runes) {
 		ch := runes[i]
-		if ch == '\n' {
+		if sqlscript.CountsAsLineBreak(ch, nextRune(runes, i)) {
 			*line++
 			inner = append(inner, ch)
 			i++
@@ -269,7 +260,7 @@ func skipQuote(runes []rune, i int, closer rune, line *int) int {
 	i++
 	for i < len(runes) {
 		ch := runes[i]
-		if ch == '\n' {
+		if sqlscript.CountsAsLineBreak(ch, nextRune(runes, i)) {
 			*line++
 		}
 		if ch == closer {
@@ -311,22 +302,28 @@ func errorIdentRune(ch rune) bool {
 }
 
 // lineOfRune 把 1 开始的字符位置换成语句内的行号。位置超出文本时落到最后一行。
+func nextRune(runes []rune, i int) rune {
+	if i+1 < len(runes) {
+		return runes[i+1]
+	}
+	return 0
+}
+
 func lineOfRune(statement string, position int) int {
 	if position < 1 {
 		return 0
 	}
+	runes := []rune(statement)
 	line := 1
-	count := 0
-	for _, ch := range statement {
-		count++
-		if count == position {
+	for i, ch := range runes {
+		if i+1 == position {
 			return line
 		}
-		if ch == '\n' {
+		if sqlscript.CountsAsLineBreak(ch, nextRune(runes, i)) {
 			line++
 		}
 	}
-	if count == 0 {
+	if len(runes) == 0 {
 		return 0
 	}
 	return line

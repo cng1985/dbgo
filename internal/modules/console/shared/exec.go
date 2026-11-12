@@ -66,7 +66,6 @@ func Execute(ctx context.Context, db *sql.DB, driver, script string, options Exe
 	if db == nil {
 		return nil, fmt.Errorf("目标连接不存在")
 	}
-	script = NormalizeNewlines(script)
 	statements := sqlscript.SplitParts(script)
 	if len(statements) == 0 {
 		return nil, fmt.Errorf("SQL 不能为空")

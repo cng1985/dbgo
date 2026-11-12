@@ -40,18 +40,26 @@ func SplitParts(sqlText string) []Part {
 		depth       int
 		dollar      string
 	)
-	write := func(ch rune) {
+	runes := []rune(sqlText)
+	nextAt := func(i int) rune {
+		if i+1 < len(runes) {
+			return runes[i+1]
+		}
+		return 0
+	}
+	writeAt := func(i int) {
+		ch := runes[i]
 		if contentLine == 0 && !unicode.IsSpace(ch) {
 			contentLine = line
 		}
 		buf.WriteRune(ch)
-		if ch == '\n' {
+		if CountsAsLineBreak(ch, nextAt(i)) {
 			line++
 		}
 	}
-	writeString := func(text string) {
-		for _, ch := range text {
-			write(ch)
+	writeRange := func(start, end int) {
+		for j := start; j < end; j++ {
+			writeAt(j)
 		}
 	}
 	flush := func() {
@@ -66,7 +74,6 @@ func SplitParts(sqlText string) []Part {
 		}
 		contentLine = 0
 	}
-	runes := []rune(sqlText)
 	for i := 0; i < len(runes); i++ {
 		ch := runes[i]
 		next := rune(0)
@@ -74,25 +81,25 @@ func SplitParts(sqlText string) []Part {
 			next = runes[i+1]
 		}
 		if inLine {
-			write(ch)
-			if ch == '\n' {
+			writeAt(i)
+			if ch == '\n' || ch == '\r' {
 				inLine = false
 			}
 			continue
 		}
 		if inBlock {
-			write(ch)
+			writeAt(i)
 			if ch == '*' && next == '/' {
-				write(next)
+				writeAt(i + 1)
 				i++
 				inBlock = false
 			}
 			continue
 		}
 		if inSingle {
-			write(ch)
+			writeAt(i)
 			if ch == '\'' && next == '\'' {
-				write(next)
+				writeAt(i + 1)
 				i++
 				continue
 			}
@@ -102,9 +109,9 @@ func SplitParts(sqlText string) []Part {
 			continue
 		}
 		if inDouble {
-			write(ch)
+			writeAt(i)
 			if ch == '"' && next == '"' {
-				write(next)
+				writeAt(i + 1)
 				i++
 				continue
 			}
@@ -114,9 +121,9 @@ func SplitParts(sqlText string) []Part {
 			continue
 		}
 		if inBacktick {
-			write(ch)
+			writeAt(i)
 			if ch == '`' && next == '`' {
-				write(next)
+				writeAt(i + 1)
 				i++
 				continue
 			}
@@ -126,9 +133,9 @@ func SplitParts(sqlText string) []Part {
 			continue
 		}
 		if inBracket {
-			write(ch)
+			writeAt(i)
 			if ch == ']' && next == ']' {
-				write(next)
+				writeAt(i + 1)
 				i++
 				continue
 			}
@@ -139,18 +146,20 @@ func SplitParts(sqlText string) []Part {
 		}
 		if dollar != "" {
 			if hasPrefixRunes(runes, i, dollar) {
-				writeString(dollar)
-				i += len([]rune(dollar)) - 1
+				end := i + len([]rune(dollar))
+				writeRange(i, end)
+				i = end - 1
 				dollar = ""
 				continue
 			}
-			write(ch)
+			writeAt(i)
 			continue
 		}
 		if ch == '$' {
 			if tag := dollarTag(runes, i); tag != "" {
-				writeString(tag)
-				i += len([]rune(tag)) - 1
+				end := i + len([]rune(tag))
+				writeRange(i, end)
+				i = end - 1
 				dollar = tag
 				continue
 			}
@@ -171,7 +180,7 @@ func SplitParts(sqlText string) []Part {
 					depth--
 				}
 			}
-			writeString(word)
+			writeRange(i, end)
 			i = end - 1
 			continue
 		}
@@ -182,16 +191,16 @@ func SplitParts(sqlText string) []Part {
 		switch ch {
 		case '-':
 			if next == '-' {
-				write(ch)
-				write(next)
+				writeAt(i)
+				writeAt(i + 1)
 				i++
 				inLine = true
 				continue
 			}
 		case '/':
 			if next == '*' {
-				write(ch)
-				write(next)
+				writeAt(i)
+				writeAt(i + 1)
 				i++
 				inBlock = true
 				continue
@@ -205,10 +214,18 @@ func SplitParts(sqlText string) []Part {
 		case '[':
 			inBracket = true
 		}
-		write(ch)
+		writeAt(i)
 	}
 	flush()
 	return parts
+}
+
+// CountsAsLineBreak 判断这个字符是否让编辑器另起一行。回车加换行只算一行。
+func CountsAsLineBreak(ch, next rune) bool {
+	if ch == '\n' {
+		return true
+	}
+	return ch == '\r' && next != '\n'
 }
 
 // codeOffset 返回语句开头的注释和空白占了多少行。调用方把它加到内容起始行上，得到第一行代码。
@@ -217,26 +234,33 @@ func codeOffset(statement string) int {
 	newlines := 0
 	for i := 0; i < len(runes); i++ {
 		ch := runes[i]
-		if ch == '\n' {
+		next := rune(0)
+		if i+1 < len(runes) {
+			next = runes[i+1]
+		}
+		if CountsAsLineBreak(ch, next) {
 			newlines++
 			continue
 		}
 		if unicode.IsSpace(ch) {
 			continue
 		}
-		if ch == '-' && i+1 < len(runes) && runes[i+1] == '-' {
-			for i < len(runes) && runes[i] != '\n' {
+		if ch == '-' && next == '-' {
+			for i < len(runes) && runes[i] != '\n' && runes[i] != '\r' {
 				i++
 			}
-			if i < len(runes) && runes[i] == '\n' {
+			if i < len(runes) && CountsAsLineBreak(runes[i], nextRune(runes, i)) {
 				newlines++
+				if runes[i] == '\r' && i+1 < len(runes) && runes[i+1] == '\n' {
+					i++
+				}
 			}
 			continue
 		}
-		if ch == '/' && i+1 < len(runes) && runes[i+1] == '*' {
+		if ch == '/' && next == '*' {
 			i += 2
 			for i+1 < len(runes) && !(runes[i] == '*' && runes[i+1] == '/') {
-				if runes[i] == '\n' {
+				if CountsAsLineBreak(runes[i], nextRune(runes, i)) {
 					newlines++
 				}
 				i++
@@ -247,6 +271,13 @@ func codeOffset(statement string) int {
 			continue
 		}
 		return newlines
+	}
+	return 0
+}
+
+func nextRune(runes []rune, i int) rune {
+	if i+1 < len(runes) {
+		return runes[i+1]
 	}
 	return 0
 }
@@ -335,7 +366,7 @@ func nextWord(runes []rune, i int) string {
 			continue
 		}
 		if ch == '-' && i+1 < len(runes) && runes[i+1] == '-' {
-			for i < len(runes) && runes[i] != '\n' {
+			for i < len(runes) && runes[i] != '\n' && runes[i] != '\r' {
 				i++
 			}
 			continue
