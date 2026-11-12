@@ -222,6 +222,7 @@ const contextItems = computed(() => {
   }
   if (node.kind === 'schema' && node.connection) {
     items.push(
+      { label: '查看结构', run: () => openTool('catalog', { connectionId: node.connection.id, schema: node.schema || '', focusSeq: Date.now() }) },
       { label: '新建表', run: () => design('table', node) },
       { label: '新建视图', run: () => design('view', node) },
       { label: '新建存储过程', run: () => design('procedure', node) },
@@ -319,6 +320,8 @@ function sanitize(tab) {
       title: tools[tab.tool].title,
       closable: true,
       preferredConnection: String(tab.preferredConnection || ''),
+      preferredSchema: String(tab.preferredSchema || ''),
+      focusSeq: 0,
       command: null
     }
   }
@@ -396,12 +399,20 @@ function openTool(tool, opts = {}) {
       title: meta.title,
       closable: true,
       preferredConnection: opts.connectionId || '',
+      preferredSchema: opts.schema || '',
+      focusSeq: opts.focusSeq || 0,
       command: opts.command || null
     }
     tabs.value.push(tab)
   } else {
     if (opts.connectionId) {
       tab.preferredConnection = opts.connectionId
+    }
+    if (Object.prototype.hasOwnProperty.call(opts, 'schema')) {
+      tab.preferredSchema = opts.schema || ''
+    }
+    if (opts.focusSeq) {
+      tab.focusSeq = opts.focusSeq
     }
     if (opts.command) {
       tab.command = opts.command
@@ -410,6 +421,13 @@ function openTool(tool, opts = {}) {
   activeId.value = tab.id
   if (!opts.fromRoute) {
     go(meta.path)
+  }
+}
+
+function onCatalogSchema(name) {
+  const tab = tabs.value.find((item) => item.kind === 'tool' && item.tool === 'catalog')
+  if (tab && tab.preferredSchema !== (name || '')) {
+    tab.preferredSchema = name || ''
   }
 }
 
@@ -1023,7 +1041,7 @@ onBeforeUnmount(() => {
             <div v-else class="tool-scroll">
               <Overview v-if="tab.tool === 'overview'" />
               <Connections v-else-if="tab.tool === 'connections'" :command="tab.command" :revision="revision" @changed="reloadConnections" />
-              <Catalog v-else-if="tab.tool === 'catalog'" :preferred-connection="tab.preferredConnection" :revision="revision" :structure-refresh="structureRefresh" />
+              <Catalog v-else-if="tab.tool === 'catalog'" :preferred-connection="tab.preferredConnection" :preferred-schema="tab.preferredSchema || ''" :focus-seq="tab.focusSeq || 0" :revision="revision" :structure-refresh="structureRefresh" @schema="onCatalogSchema" />
               <Migrations v-else-if="tab.tool === 'migrations'" :preferred-connection="tab.preferredConnection" :revision="revision" />
               <Backups v-else-if="tab.tool === 'backups'" :preferred-connection="tab.preferredConnection" :revision="revision" />
               <Etl v-else-if="tab.tool === 'etl'" :preferred-connection="tab.preferredConnection" :revision="revision" />

@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { api, driverLabel } from '../api'
 import { columnTypeFor, columnTypeOptions, defaultColumnType, matchColumnType } from '../columnTypes.js'
+import { defaultSchemaName, schemaPlaceholder } from '../catalogView.js'
 
 const props = defineProps({
   command: { type: Object, default: null },
@@ -23,7 +24,10 @@ const sql = ref('')
 const note = ref('')
 const error = ref('')
 const pending = ref(false)
-const driver = computed(() => props.connections.find((item) => item.id === connectionID.value)?.driver || 'sqlite')
+const selectedConnection = computed(() => props.connections.find((item) => item.id === connectionID.value))
+const driver = computed(() => selectedConnection.value?.driver || 'sqlite')
+const schemaHint = computed(() => schemaPlaceholder(driver.value, selectedConnection.value?.database_name || ''))
+const autoSchema = ref('')
 const isRoutine = computed(() => kind.value === 'procedure' || kind.value === 'function')
 const sqliteRoutine = computed(() => driver.value === 'sqlite' && isRoutine.value)
 
@@ -79,9 +83,17 @@ const alterDialog = ref(null)
 const editingTable = computed(() => kind.value === 'table' && baselineColumns.value != null)
 const blockTableExecute = computed(() => openedAsEdit.value && kind.value === 'table')
 
-watch(driver, (value) => {
+watch(driver, (value, previous) => {
   for (const column of columns.value) {
     column.type = columnTypeFor(value, column.type)
+  }
+  if (!previous || openedAsEdit.value || baselineColumns.value) {
+    return
+  }
+  const next = defaultSchemaName(value, selectedConnection.value?.database_name || '')
+  if (!schema.value || schema.value === autoSchema.value) {
+    schema.value = next
+    autoSchema.value = next
   }
 })
 
@@ -106,6 +118,12 @@ watch(() => props.command, async (command) => {
     connectionID.value = command.connectionId
   }
   schema.value = command.schema || ''
+  autoSchema.value = ''
+  if (command.type !== 'edit' && !command.schema) {
+    const next = defaultSchemaName(driver.value, selectedConnection.value?.database_name || '')
+    schema.value = next
+    autoSchema.value = next
+  }
   name.value = command.name || ''
   replace.value = command.type === 'edit'
   openedAsEdit.value = command.type === 'edit'
@@ -326,7 +344,7 @@ async function apply() {
           <option value="" disabled>选择连接</option>
           <option v-for="item in connections" :key="item.id" :value="item.id">{{ item.name }}</option>
         </select>
-        <input v-model="schema" placeholder="模式，可空" aria-label="模式" />
+        <input v-model="schema" :placeholder="schemaHint" aria-label="模式" />
         <select v-model="kind" aria-label="对象类型">
           <option value="table">表</option>
           <option value="view">视图</option>

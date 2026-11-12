@@ -1,6 +1,7 @@
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api, driverLabel, formatBytes, formatTime } from '../api'
+import { schemaPlaceholder } from '../catalogView.js'
 
 const props = defineProps({
   preferredConnection: { type: String, default: '' },
@@ -13,6 +14,10 @@ const schema = ref('')
 const snapshot = ref(null)
 const error = ref('')
 const pending = ref(false)
+const schemaHint = computed(() => {
+  const row = props.connections.find((item) => item.id === connectionID.value)
+  return row ? schemaPlaceholder(row.driver, row.database_name) : '模式，留空用默认'
+})
 
 watch(() => props.connections, (list) => {
   if (!connectionID.value && list?.length) {
@@ -60,7 +65,7 @@ onMounted(load)
           <option value="" disabled>选择连接</option>
           <option v-for="item in connections" :key="item.id" :value="item.id">{{ item.name }} · {{ driverLabel(item.driver) }}</option>
         </select>
-        <input v-model="schema" placeholder="模式，留空用默认" aria-label="模式" @keyup.enter="load" />
+        <input v-model="schema" :placeholder="schemaHint" aria-label="模式" @keyup.enter="load" />
         <button class="btn btn-primary" type="button" :disabled="pending || !connectionID" @click="load">采集</button>
       </div>
       <span v-if="snapshot" class="muted">{{ snapshot.server_version }} · {{ formatTime(snapshot.collected_at) }}</span>

@@ -149,6 +149,14 @@ td.wrap, .wrap { white-space: normal; }
 .tag.bad { background: #fdeceb; color: var(--clay); }
 .tag.good { background: #e7f6ec; color: var(--moss); }
 .split { display: grid; grid-template-columns: minmax(180px, 240px) 1fr; gap: 12px; align-items: start; }
+.wb-pane > .tool-scroll:has(.catalog-page) { display: flex; flex-direction: column; overflow: hidden; }
+.page.catalog-page { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; align-content: stretch; }
+.catalog-page .split { flex: 1; min-height: 0; align-items: stretch; grid-template-rows: minmax(0, 1fr); }
+.catalog-tables { min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+.catalog-table-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.catalog-filter { width: 100%; }
+.catalog-table-list { flex: 1; min-height: 120px; overflow: auto; border: 1px solid var(--line); border-radius: 2px; background: #fff; }
+.catalog-detail { min-height: 0; overflow: auto; align-content: start; }
 .split-wide { grid-template-columns: 1fr 280px; }
 .result { overflow: auto; max-height: 420px; }
 .empty { padding: 22px; color: var(--muted); text-align: center; }
@@ -658,6 +666,10 @@ td.null { color: #9a9a9a; font-style: italic; }
 
 @media (max-width: 860px) {
   .login, .split, .split-wide, .form-grid, .account-grid { grid-template-columns: 1fr; }
+  .wb-pane > .tool-scroll:has(.catalog-page) { overflow: auto; }
+  .page.catalog-page { flex: none; overflow: visible; }
+  .catalog-table-list { flex: none; max-height: 240px; }
+  .catalog-detail { overflow: visible; }
   .span-2 { grid-column: auto; }
   .wb-body { flex-direction: column; }
   .wb-nav { width: 100% !important; height: 240px; }
