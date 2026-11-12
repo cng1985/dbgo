@@ -31,6 +31,19 @@ export function pickSchema(driver, schemas, current = '', databaseName = '') {
   return found || names[0] || ''
 }
 
+export function nextAutoSchema(schema, autoSchema, driver, databaseName, editing) {
+  const current = schema || ''
+  const automatic = autoSchema || ''
+  if (editing) {
+    return { schema: current, autoSchema: automatic }
+  }
+  const next = defaultSchemaName(driver, databaseName)
+  if (!current || current === automatic) {
+    return { schema: next, autoSchema: next }
+  }
+  return { schema: current, autoSchema: automatic }
+}
+
 export function filterTables(tables, keyword) {
   const query = String(keyword || '').trim().toLowerCase()
   if (!query) {

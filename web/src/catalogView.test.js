@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { defaultSchemaName, filterTables, pickSchema, schemaPlaceholder } from './catalogView.js'
+import { defaultSchemaName, filterTables, nextAutoSchema, pickSchema, schemaPlaceholder } from './catalogView.js'
 
 test('SQL Server 默认 dbo，PostgreSQL 默认 public', () => {
   assert.equal(defaultSchemaName('sqlserver'), 'dbo')
@@ -18,6 +18,16 @@ test('已有模式优先，否则落到驱动的默认模式', () => {
   assert.equal(pickSchema('postgres', [{ name: 'app' }, { name: 'public' }], 'missing'), 'public')
   assert.equal(pickSchema('mysql', [{ name: 'other' }], '', 'shop'), 'other')
   assert.equal(pickSchema('mysql', [{ name: 'shop' }, { name: 'other' }], '', 'shop'), 'shop')
+})
+
+test('自动填入的模式会跟着连接变，手填的模式保持不变', () => {
+  const shop = nextAutoSchema('', '', 'mysql', 'shop', false)
+  assert.deepEqual(shop, { schema: 'shop', autoSchema: 'shop' })
+  const other = nextAutoSchema(shop.schema, shop.autoSchema, 'mysql', 'other', false)
+  assert.deepEqual(other, { schema: 'other', autoSchema: 'other' })
+  assert.deepEqual(nextAutoSchema('sales', 'shop', 'mysql', 'other', false), { schema: 'sales', autoSchema: 'shop' })
+  assert.deepEqual(nextAutoSchema('shop', 'shop', 'mysql', 'other', true), { schema: 'shop', autoSchema: 'shop' })
+  assert.deepEqual(nextAutoSchema('main', 'main', 'postgres', '', false), { schema: 'public', autoSchema: 'public' })
 })
 
 test('按表名过滤，忽略大小写和首尾空白', () => {
