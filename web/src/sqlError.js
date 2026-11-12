@@ -1,3 +1,8 @@
+// 只用于编辑器显示。文本框本身会把回车显示成换行，发给数据库的脚本仍保留原字符。
+export function normalizeNewlines(value) {
+  return String(value ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+}
+
 export function sqlErrorLine(message) {
   const match = /^第\s*(\d+)\s*行/.exec(String(message || '').trim())
   if (!match) {

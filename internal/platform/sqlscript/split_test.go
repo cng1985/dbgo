@@ -5,6 +5,29 @@ import (
 	"testing"
 )
 
+func TestSplitKeepsCarriageReturnInsideLiteral(t *testing.T) {
+	parts := SplitParts("insert into note values ('a\r\nb');\nselect missing;")
+	if len(parts) != 2 {
+		t.Fatalf("语句数量 = %d，内容 %#v", len(parts), parts)
+	}
+	if !strings.Contains(parts[0].Text, "a\r\nb") {
+		t.Fatalf("字面量里的回车被改掉了: %q", parts[0].Text)
+	}
+	if parts[1].Line != 3 {
+		t.Fatalf("回车换行应占一行，行号 = %d", parts[1].Line)
+	}
+
+	cr := SplitParts("select 1;\rselect 2;")
+	if len(cr) != 2 || cr[1].Line != 2 || strings.Contains(cr[0].Text, "\r") {
+		t.Fatalf("单独的回车应换行且不留在前一条语句里: %#v", cr)
+	}
+
+	comment := SplitParts("-- note\rselect bad;")
+	if len(comment) != 1 || comment[0].Line != 2 || !strings.Contains(comment[0].Text, "\r") {
+		t.Fatalf("回车后的语句应另起一行: %#v", comment)
+	}
+}
+
 func TestSplitKeepsSemicolonInsideLiteral(t *testing.T) {
 	got := Split("insert into city (name) values ('a;b');\nselect 1;")
 	if len(got) != 2 {

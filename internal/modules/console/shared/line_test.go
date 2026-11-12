@@ -84,11 +84,44 @@ func TestFailStatementDoesNotCountLeadingCommentTwice(t *testing.T) {
 	}
 }
 
+func TestFailStatementUsesMySQLLine(t *testing.T) {
+	part := sqlscript.Part{Text: "select\n1\nform city", TextLine: 4, Line: 4}
+	err := failStatement(part, errors.New("Error 1064 (42000): near 'form city' at line 3"))
+	if ErrorLine(err) != 6 {
+		t.Fatalf("行号 = %d，错误 = %v", ErrorLine(err), err)
+	}
+}
+
+func TestFailStatementSkipsColumnNameInString(t *testing.T) {
+	part := sqlscript.Part{Text: "select 'missing_column'\n, missing_column from city", TextLine: 1, Line: 1}
+	err := failStatement(part, errors.New("SQL logic error: no such column: missing_column (1)"))
+	if ErrorLine(err) != 2 {
+		t.Fatalf("行号 = %d，错误 = %v", ErrorLine(err), err)
+	}
+}
+
+func TestFailStatementSkipsColumnNameInComment(t *testing.T) {
+	part := sqlscript.Part{Text: "-- missing_column\nselect\n  missing_column\nfrom city", TextLine: 1, Line: 2}
+	err := failStatement(part, errors.New("SQL logic error: no such column: missing_column (1)"))
+	if ErrorLine(err) != 3 {
+		t.Fatalf("行号 = %d，错误 = %v", ErrorLine(err), err)
+	}
+}
+
 func TestFailStatementKeepsStartLineWithoutDriverLine(t *testing.T) {
 	part := sqlscript.Part{Text: "select missing", Line: 3}
 	err := failStatement(part, errors.New("no such column: missing"))
 	if ErrorLine(err) != 3 {
 		t.Fatalf("行号 = %d", ErrorLine(err))
+	}
+}
+
+func TestLineOfRuneCountsCarriageReturnOnce(t *testing.T) {
+	if line := lineOfRune("select\r\nbad", 9); line != 2 {
+		t.Fatalf("回车换行后的行号 = %d", line)
+	}
+	if line := lineOfRune("select\rbad", 8); line != 2 {
+		t.Fatalf("单独回车后的行号 = %d", line)
 	}
 }
 

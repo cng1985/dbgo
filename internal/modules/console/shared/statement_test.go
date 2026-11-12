@@ -52,6 +52,56 @@ func TestExecuteKeepsLeadingBlankLines(t *testing.T) {
 	}
 }
 
+func TestExecutePointsAtTheColumnLine(t *testing.T) {
+	db := openStatementDB(t)
+	script := "select id from city;\n\nselect\n  id,\n  missing_column\nfrom city"
+	_, err := Execute(context.Background(), db, "sqlite", script, ExecOptions{ReadOnly: true})
+	if err == nil {
+		t.Fatal("缺少的字段应失败")
+	}
+	if ErrorLine(err) != 5 {
+		t.Fatalf("行号 = %d，错误 = %v", ErrorLine(err), err)
+	}
+}
+
+func TestExecutePointsAtSyntaxTokenLine(t *testing.T) {
+	db := openStatementDB(t)
+	script := "select id from city;\n\nselect 1\nform city"
+	_, err := Execute(context.Background(), db, "sqlite", script, ExecOptions{ReadOnly: true})
+	if err == nil {
+		t.Fatal("错误关键字应失败")
+	}
+	if ErrorLine(err) != 4 {
+		t.Fatalf("行号 = %d，错误 = %v", ErrorLine(err), err)
+	}
+}
+
+func TestExecuteKeepsCarriageReturnInsideLiteral(t *testing.T) {
+	db := openStatementDB(t)
+	script := "select 'a\r\nb' as body;\nselect missing_column from city"
+	results, err := Execute(context.Background(), db, "sqlite", script, ExecOptions{ReadOnly: true})
+	if err == nil {
+		t.Fatal("第二条语句应失败")
+	}
+	if ErrorLine(err) != 3 {
+		t.Fatalf("行号 = %d，错误 = %v", ErrorLine(err), err)
+	}
+	if len(results) != 1 || len(results[0].Rows) != 1 || results[0].Rows[0][0] == nil || *results[0].Rows[0][0] != "a\r\nb" {
+		t.Fatalf("字符串里的回车被改掉了: %#v", results)
+	}
+}
+
+func TestExecuteCountsCarriageReturnAsNewline(t *testing.T) {
+	db := openStatementDB(t)
+	_, err := Execute(context.Background(), db, "sqlite", "select id from city;\rselect missing_column from city", ExecOptions{ReadOnly: true})
+	if err == nil {
+		t.Fatal("第二条语句应失败")
+	}
+	if ErrorLine(err) != 2 {
+		t.Fatalf("回车应单独成行，行号 = %d，错误 = %v", ErrorLine(err), err)
+	}
+}
+
 func TestExecuteReportsCommentedStatementLine(t *testing.T) {
 	db := openStatementDB(t)
 	_, err := Execute(context.Background(), db, "sqlite", "select 1;\n-- 下一行才是语句\nselect missing_column from city;", ExecOptions{ReadOnly: true})
