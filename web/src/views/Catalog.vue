@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { api } from '../api'
+import { api, listConnections } from '../api'
 import { filterTables, pickSchema } from '../catalogView.js'
 
 const connections = ref([])
@@ -36,8 +36,7 @@ function sameID(left, right) {
 }
 
 async function loadConnections() {
-  const page = await api('/api/connection/search', { page: 1, page_size: 100, sort: 'name', direction: 'asc' })
-  connections.value = page.data || []
+  connections.value = await listConnections()
   connectionsReady = true
   if (!connectionID.value && connections.value.length) {
     connectionID.value = connections.value[0].id

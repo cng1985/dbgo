@@ -1,3 +1,5 @@
+import { collectPages } from './navTree.js'
+
 export class ApiError extends Error {
   constructor(message, code) {
     super(message)
@@ -89,6 +91,15 @@ export const drivers = [
 
 export function driverLabel(value) {
   return drivers.find((item) => item.value === value)?.label || value || '—'
+}
+
+export function listConnections() {
+  return collectPages((page, pageSize) => api('/api/connection/search', {
+    page,
+    page_size: pageSize,
+    sort: 'name',
+    direction: 'asc'
+  }))
 }
 
 export function connectionTarget(row) {

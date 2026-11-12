@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, connectionTarget, driverLabel } from '../api'
+import { api, connectionTarget, driverLabel, listConnections } from '../api'
 import { useSession } from '../stores/session'
 import { selectStar } from '../sqlText.js'
 import { applyTabClose } from '../tabClose.js'
@@ -763,8 +763,7 @@ async function onApplied(info) {
 }
 
 async function reloadConnections() {
-  const page = await api('/api/connection/search', { page: 1, page_size: 100, sort: 'name', direction: 'asc' })
-  connections.value = page.data || []
+  connections.value = await listConnections()
   revision.value += 1
   for (const tab of tabs.value) {
     if (tab.kind === 'sql' && !tab.connectionId && connections.value[0]) {
