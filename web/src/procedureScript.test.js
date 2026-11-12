@@ -83,6 +83,32 @@ test('已有过程保存时改成可覆盖的语句', () => {
   assert.match(postgres, /^CREATE OR REPLACE PROCEDURE app\.save_order/)
 })
 
+test('函数用同一套来源模板，保存时改成函数语句', () => {
+  const sql = procedureTemplate('sqlserver', 'dbo', 'to_decimal', 'function')
+  assert.match(sql, /^CREATE FUNCTION dbo\.to_decimal\(\)\nRETURNS int\nAS\nBEGIN\n/)
+  assert.equal(procedureName(sql), 'to_decimal')
+  const saved = procedureSaveSQL('sqlserver', sql, { existing: true, kind: 'function' })
+  assert.match(saved, /^CREATE OR ALTER FUNCTION dbo\.to_decimal/)
+  assert.match(saved, /RETURN 0/)
+  const mysql = procedureSaveSQL('mysql', procedureTemplate('mysql', 'shop', 'to_decimal', 'function'), {
+    existing: true,
+    schema: 'shop',
+    name: 'to_decimal',
+    kind: 'function'
+  })
+  assert.match(mysql, /^DROP FUNCTION IF EXISTS shop\.to_decimal;\nCREATE FUNCTION/)
+  const postgres = procedureSaveSQL('postgres', procedureTemplate('postgres', 'app', 'to_decimal', 'function'), { existing: true, kind: 'function' })
+  assert.match(postgres, /^CREATE OR REPLACE FUNCTION app\.to_decimal/)
+  assert.match(procedureCommentSQL('sqlserver', 'dbo', 'to_decimal', '转换', [], 'function'), /N'FUNCTION'/)
+  assert.match(procedureCommentSQL('mysql', 'shop', 'to_decimal', '转换', [], 'function'), /ALTER FUNCTION shop\.to_decimal COMMENT '转换'/)
+  const rewritten = applyProcedureParams(sql, 'sqlserver', [
+    { name: 'amount', type: 'decimal(18, 2)', mode: 'in', comment: '金额' }
+  ], 'function')
+  assert.match(rewritten, /@amount decimal\(18, 2\) -- 金额/)
+  assert.match(rewritten, /RETURNS int/)
+  assert.match(rewritten, /RETURN 0/)
+})
+
 test('描述语句会转义引号', () => {
   const sql = procedureCommentSQL('sqlserver', 'dbo', 'save_order', '用户的\'订单\'')
   assert.match(sql, /N'用户的''订单'''/)

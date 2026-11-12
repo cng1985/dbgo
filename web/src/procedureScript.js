@@ -407,20 +407,39 @@ function parseParam(chunk) {
   }
 }
 
-export function procedureTemplate(driver, schema, name) {
-  const proc = String(name || '').trim() || 'new_procedure'
+function routineKind(kind) {
+  return kind === 'function' ? 'function' : 'procedure'
+}
+
+function routineWord(kind) {
+  return routineKind(kind) === 'function' ? 'FUNCTION' : 'PROCEDURE'
+}
+
+export function procedureTemplate(driver, schema, name, kind = 'procedure') {
+  const routine = routineKind(kind)
+  const proc = String(name || '').trim() || (routine === 'function' ? 'new_function' : 'new_procedure')
   const qualified = qualifyProcedure(driver, schema, proc)
   if (!qualified) {
     return ''
   }
+  const word = routineWord(routine)
   if (driver === 'sqlserver') {
+    if (routine === 'function') {
+      return `CREATE FUNCTION ${qualified}()\nRETURNS int\nAS\nBEGIN\n  RETURN 0\nEND\n`
+    }
     return `CREATE PROCEDURE ${qualified}\nAS\nBEGIN\n  SET NOCOUNT ON;\nEND\n`
   }
   if (driver === 'postgres') {
+    if (routine === 'function') {
+      return `CREATE FUNCTION ${qualified}()\nRETURNS integer\nLANGUAGE plpgsql\nAS $$\nBEGIN\n  RETURN NULL;\nEND;\n$$\n`
+    }
     return `CREATE PROCEDURE ${qualified}()\nLANGUAGE plpgsql\nAS $$\nBEGIN\n  NULL;\nEND;\n$$\n`
   }
   if (driver === 'mysql') {
-    return `CREATE PROCEDURE ${qualified}()\nBEGIN\nEND\n`
+    if (routine === 'function') {
+      return `CREATE FUNCTION ${qualified}()\nRETURNS INT\nDETERMINISTIC\nBEGIN\n  RETURN 0;\nEND\n`
+    }
+    return `CREATE ${word} ${qualified}()\nBEGIN\nEND\n`
   }
   return ''
 }
@@ -452,9 +471,9 @@ export function procedureParams(sql) {
   return splitTop(region.text).map(parseParam).filter(Boolean)
 }
 
-function formatParam(driver, param) {
+function formatParam(driver, param, kind = 'procedure') {
   if (driver === 'sqlserver') {
-    const output = param.mode === 'out' || param.mode === 'inout' ? ' OUTPUT' : ''
+    const output = kind !== 'function' && (param.mode === 'out' || param.mode === 'inout') ? ' OUTPUT' : ''
     return `@${param.name} ${param.type}${output}`
   }
   const mode = String(param.mode || 'in').toUpperCase()
@@ -481,7 +500,7 @@ function parensBalanced(text) {
   return depth === 0
 }
 
-export function applyProcedureParams(sql, driver, params) {
+export function applyProcedureParams(sql, driver, params, kind = 'procedure') {
   const header = matchHeader(sql)
   if (!header) {
     return sql
@@ -501,16 +520,16 @@ export function applyProcedureParams(sql, driver, params) {
     } else if (list.some((item) => String(item.comment || '').trim())) {
       const lines = list.map((item, index) => {
         const comma = index < list.length - 1 ? ',' : ''
-        return '  ' + withComment(formatParam(driver, item) + comma, item.comment)
+        return '  ' + withComment(formatParam(driver, item, kind) + comma, item.comment)
       })
       formatted = '(\n' + lines.join('\n') + '\n)'
     } else {
-      formatted = '(' + list.map((item) => formatParam(driver, item)).join(', ') + ')'
+      formatted = '(' + list.map((item) => formatParam(driver, item, kind)).join(', ') + ')'
     }
   } else if (list.length) {
     formatted = '\n' + list.map((item, index) => {
       const comma = index < list.length - 1 ? ',' : ''
-      return '  ' + withComment(formatParam(driver, item) + comma, item.comment)
+      return '  ' + withComment(formatParam(driver, item, kind) + comma, item.comment)
     }).join('\n') + '\n'
   } else {
     formatted = '\n'
@@ -527,13 +546,20 @@ export function procedureSaveSQL(driver, sql, options = {}) {
     const header = matchHeader(script)
     if (header) {
       const keyword = script.slice(header.keywordStart, header.keywordEnd).toLowerCase().replace(/\s+/g, ' ')
-      if (driver === 'sqlserver' && (keyword === 'create procedure' || keyword === 'create proc')) {
-        script = script.slice(0, header.keywordStart) + 'CREATE OR ALTER PROCEDURE' + script.slice(header.keywordEnd)
-      } else if (driver === 'postgres' && (keyword === 'create procedure' || keyword === 'create proc')) {
-        script = script.slice(0, header.keywordStart) + 'CREATE OR REPLACE PROCEDURE' + script.slice(header.keywordEnd)
-      } else if (driver === 'mysql' && !/\bdrop\s+procedure\b/i.test(script.slice(0, header.keywordStart))) {
+      const routine = /\bfunction$/.test(keyword)
+        ? 'function'
+        : (/\bproc(?:edure)?$/.test(keyword) ? 'procedure' : routineKind(options.kind))
+      const word = routineWord(routine)
+      const created = routine === 'function'
+        ? keyword === 'create function'
+        : (keyword === 'create procedure' || keyword === 'create proc')
+      if (driver === 'sqlserver' && created) {
+        script = script.slice(0, header.keywordStart) + `CREATE OR ALTER ${word}` + script.slice(header.keywordEnd)
+      } else if (driver === 'postgres' && created) {
+        script = script.slice(0, header.keywordStart) + `CREATE OR REPLACE ${word}` + script.slice(header.keywordEnd)
+      } else if (driver === 'mysql' && !new RegExp(`\\bdrop\\s+${routine}\\b`, 'i').test(script.slice(0, header.keywordStart))) {
         const qualified = qualifyProcedure(driver, options.schema, options.name || procedureName(script))
-        script = `DROP PROCEDURE IF EXISTS ${qualified};\n${script}`
+        script = `DROP ${word} IF EXISTS ${qualified};\n${script}`
       }
     }
   }
@@ -545,11 +571,12 @@ function sqlString(value, unicode) {
   return (unicode ? 'N' : '') + `'${text}'`
 }
 
-export function procedureCommentSQL(driver, schema, name, description, params = []) {
+export function procedureCommentSQL(driver, schema, name, description, params = [], kind = 'procedure') {
   const proc = String(name || '').trim()
   if (!proc) {
     return ''
   }
+  const word = routineWord(kind)
   if (driver === 'sqlserver') {
     const owner = sqlString(schema || 'dbo', true)
     const objectName = sqlString(proc, true)
@@ -562,17 +589,17 @@ export function procedureCommentSQL(driver, schema, name, description, params = 
     INNER JOIN sys.schemas s ON s.schema_id = o.schema_id
     WHERE ep.name = N'MS_Description' AND s.name = ${owner} AND o.name = ${objectName}
   )
-    EXEC sys.sp_updateextendedproperty @name = N'MS_Description', @value = ${text}, @level0type = N'SCHEMA', @level0name = ${owner}, @level1type = N'PROCEDURE', @level1name = ${objectName};
+    EXEC sys.sp_updateextendedproperty @name = N'MS_Description', @value = ${text}, @level0type = N'SCHEMA', @level0name = ${owner}, @level1type = N'${word}', @level1name = ${objectName};
   ELSE
-    EXEC sys.sp_addextendedproperty @name = N'MS_Description', @value = ${text}, @level0type = N'SCHEMA', @level0name = ${owner}, @level1type = N'PROCEDURE', @level1name = ${objectName};
+    EXEC sys.sp_addextendedproperty @name = N'MS_Description', @value = ${text}, @level0type = N'SCHEMA', @level0name = ${owner}, @level1type = N'${word}', @level1name = ${objectName};
 END`
   }
   if (driver === 'mysql') {
-    return `ALTER PROCEDURE ${qualifyProcedure(driver, schema, proc)} COMMENT ${sqlString(description || '', false)}`
+    return `ALTER ${word} ${qualifyProcedure(driver, schema, proc)} COMMENT ${sqlString(description || '', false)}`
   }
   if (driver === 'postgres') {
     const types = (params || []).map((item) => String(item.type || '').trim()).filter(Boolean).join(', ')
-    return `COMMENT ON PROCEDURE ${qualifyProcedure(driver, schema, proc)}(${types}) IS ${sqlString(description || '', false)}`
+    return `COMMENT ON ${word} ${qualifyProcedure(driver, schema, proc)}(${types}) IS ${sqlString(description || '', false)}`
   }
   return ''
 }

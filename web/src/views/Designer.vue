@@ -76,10 +76,6 @@ function optionsFor(type) {
   return columnTypeOptions(driver.value, type)
 }
 
-function blankParam() {
-  return { name: 'p_id', type: 'integer', mode: 'in' }
-}
-
 const columns = ref([blankColumn(true)])
 const params = ref([])
 const description = ref('')
@@ -111,7 +107,7 @@ function syncAutoSchema() {
   )
   schema.value = next.schema
   autoSchema.value = next.autoSchema
-  if (kind.value === 'procedure' && !procedureExisting.value && sql.value.trim()) {
+  if (isRoutine.value && !procedureExisting.value && sql.value.trim()) {
     const proc = name.value.trim() || procedureName(sql.value)
     if (proc) {
       sql.value = setProcedureIdentity(sql.value, driver.value, schema.value, proc)
@@ -136,8 +132,8 @@ watch(driver, (value, previous) => {
     return
   }
   syncAutoSchema()
-  if (kind.value === 'procedure' && !procedureExisting.value && (!sql.value.trim() || sql.value === procedureDraft.value)) {
-    sql.value = procedureTemplate(value, schema.value, name.value)
+  if (isRoutine.value && !procedureExisting.value && (!sql.value.trim() || sql.value === procedureDraft.value)) {
+    sql.value = procedureTemplate(value, schema.value, name.value, kind.value)
     procedureDraft.value = sql.value
   }
 })
@@ -190,7 +186,7 @@ watch(() => props.command, async (command) => {
   objectId.value = ''
   savedDescription.value = ''
   procedureExisting.value = false
-  procedureSavedName.value = command.type === 'edit' && (command.kind || 'table') === 'procedure' ? (command.name || '') : ''
+  procedureSavedName.value = command.type === 'edit' && (command.kind === 'procedure' || command.kind === 'function') ? (command.name || '') : ''
   procedureSavedSchema.value = procedureSavedName.value ? schema.value : ''
   procedureDraft.value = ''
   if (command.type === 'edit' && command.name) {
@@ -199,18 +195,19 @@ watch(() => props.command, async (command) => {
     baselineColumns.value = null
     columns.value = [blankColumn(true)]
     sql.value = ''
-    if (kind.value === 'procedure') {
-      sql.value = procedureTemplate(driver.value, schema.value, name.value)
+    if (isRoutine.value) {
+      sql.value = procedureTemplate(driver.value, schema.value, name.value, kind.value)
       procedureDraft.value = sql.value
     }
   }
 }, { immediate: true })
 
 watch(kind, (value, previous) => {
-  if (value !== 'procedure' || !previous || previous === 'procedure' || procedureExisting.value) {
+  const routine = value === 'procedure' || value === 'function'
+  if (!routine || !previous || previous === value || procedureExisting.value) {
     return
   }
-  sql.value = procedureTemplate(driver.value, schema.value, name.value)
+  sql.value = procedureTemplate(driver.value, schema.value, name.value, value)
   procedureDraft.value = sql.value
 })
 
@@ -224,7 +221,7 @@ function onProcedureName(value) {
 
 function onProcedureSchema(value) {
   schema.value = value
-  if (kind.value !== 'procedure' || !name.value.trim()) {
+  if (!isRoutine.value || !name.value.trim()) {
     return
   }
   sql.value = setProcedureIdentity(sql.value, driver.value, value, name.value.trim())
@@ -242,7 +239,7 @@ function onProcedureSQL(value) {
 }
 
 function onProcedureParams(list) {
-  sql.value = applyProcedureParams(sql.value, driver.value, list)
+  sql.value = applyProcedureParams(sql.value, driver.value, list, kind.value)
 }
 
 function payload() {
@@ -291,7 +288,7 @@ async function loadDefinition() {
       kind: kind.value
     })).data
     sql.value = result.sql || ''
-    if (kind.value === 'procedure') {
+    if (isRoutine.value) {
       description.value = result.description || ''
       savedDescription.value = description.value
       objectId.value = result.object_id || ''
@@ -301,7 +298,7 @@ async function loadDefinition() {
     if (result.schema) {
       schema.value = result.schema
     }
-    if (kind.value === 'procedure') {
+    if (isRoutine.value) {
       procedureSavedName.value = name.value
       procedureSavedSchema.value = schema.value
     }
@@ -432,7 +429,7 @@ async function refreshProcedure() {
   objectId.value = ''
   procedureSavedName.value = ''
   procedureSavedSchema.value = ''
-  sql.value = procedureTemplate(driver.value, schema.value, name.value)
+  sql.value = procedureTemplate(driver.value, schema.value, name.value, kind.value)
   procedureDraft.value = sql.value
 }
 
@@ -440,7 +437,7 @@ async function saveProcedure() {
   error.value = ''
   note.value = ''
   if (sqliteRoutine.value) {
-    error.value = 'SQLite 不支持在控制台创建存储过程'
+    error.value = kind.value === 'function' ? 'SQLite 不支持在控制台创建函数' : 'SQLite 不支持在控制台创建存储过程'
     return
   }
   if (!connectionID.value) {
@@ -449,7 +446,7 @@ async function saveProcedure() {
   }
   const currentName = name.value.trim() || procedureName(sql.value)
   if (!currentName) {
-    error.value = '请填写存储过程名称'
+    error.value = kind.value === 'function' ? '请填写函数名称' : '请填写存储过程名称'
     return
   }
   name.value = currentName
@@ -457,14 +454,15 @@ async function saveProcedure() {
   let script = procedureSaveSQL(driver.value, sql.value, {
     existing: procedureExisting.value,
     schema: schema.value,
-    name: currentName
+    name: currentName,
+    kind: kind.value
   })
   if (!script.trim()) {
-    error.value = '存储过程来源不能为空'
+    error.value = kind.value === 'function' ? '函数来源不能为空' : '存储过程来源不能为空'
     return
   }
   if (description.value !== savedDescription.value) {
-    const comment = procedureCommentSQL(driver.value, schema.value, currentName, description.value, procedureParams(sql.value))
+    const comment = procedureCommentSQL(driver.value, schema.value, currentName, description.value, procedureParams(sql.value), kind.value)
     if (comment) {
       script = script.replace(/\s+$/, '')
       if (!script.endsWith(';')) {
@@ -473,7 +471,8 @@ async function saveProcedure() {
       script += '\n' + comment + '\n'
     }
   }
-  if (!window.confirm(`将在目标库保存存储过程「${currentName}」。`)) {
+  const label = kind.value === 'function' ? '函数' : '存储过程'
+  if (!window.confirm(`将在目标库保存${label}「${currentName}」。`)) {
     return
   }
   pending.value = true
@@ -484,7 +483,7 @@ async function saveProcedure() {
     })).data
     procedureExisting.value = true
     savedDescription.value = description.value
-    note.value = `已保存存储过程，执行 ${result.statements} 条语句，耗时 ${result.duration_ms} ms`
+    note.value = `已保存${label}，执行 ${result.statements} 条语句，耗时 ${result.duration_ms} ms`
     const previousName = procedureSavedName.value
     const previousSchema = procedureSavedSchema.value
     const samePlace = previousName === currentName && previousSchema === schema.value
@@ -497,11 +496,11 @@ async function saveProcedure() {
         name: currentName,
         previousSchema,
         previousName,
-        kind: 'procedure'
+        kind: kind.value
       })
     }
     await loadDefinition()
-    note.value = `已保存存储过程，执行 ${result.statements} 条语句，耗时 ${result.duration_ms} ms`
+    note.value = `已保存${label}，执行 ${result.statements} 条语句，耗时 ${result.duration_ms} ms`
   } catch (err) {
     error.value = err.message
   } finally {
@@ -541,9 +540,10 @@ async function apply() {
 </script>
 
 <template>
-  <div class="page" :class="{ 'procedure-page': kind === 'procedure' }">
+  <div class="page" :class="{ 'procedure-page': isRoutine }">
     <ProcedureStudio
-      v-if="kind === 'procedure'"
+      v-if="isRoutine"
+      :kind="kind"
       :connections="connections"
       :connection-id="connectionID"
       :schema="schema"
@@ -629,43 +629,6 @@ async function apply() {
     <div v-else-if="kind === 'view'" class="card">
       <h2>视图查询</h2>
       <label class="field"><span>SELECT</span><textarea v-model="selectSQL" class="sql-box" /></label>
-    </div>
-
-    <div v-else class="card stack">
-      <div class="toolbar">
-        <h2>参数</h2>
-        <button class="btn" type="button" @click="params.push(blankParam())">添加参数</button>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>名称</th><th>类型</th><th>方向</th><th></th></tr></thead>
-          <tbody>
-            <tr v-if="!params.length"><td colspan="4" class="empty">可以没有参数。</td></tr>
-            <tr v-for="(param, index) in params" :key="index">
-              <td><input v-model="param.name" aria-label="参数名" /></td>
-              <td><input v-model="param.type" aria-label="参数类型" /></td>
-              <td>
-                <select v-model="param.mode" aria-label="参数方向">
-                  <option value="in">in</option>
-                  <option value="out">out</option>
-                  <option value="inout">inout</option>
-                </select>
-              </td>
-              <td><button class="btn" type="button" @click="params.splice(index, 1)">删除</button></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="form-grid">
-        <label v-if="kind === 'function'" class="field"><span>返回类型</span><input v-model="returns" /></label>
-        <label class="field"><span>语言</span>
-          <select v-model="language">
-            <option value="sql">sql</option>
-            <option value="plpgsql">plpgsql</option>
-          </select>
-        </label>
-      </div>
-      <label class="field"><span>主体</span><textarea v-model="body" class="sql-box" /></label>
     </div>
 
     <label class="field">
