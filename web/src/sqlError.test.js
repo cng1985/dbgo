@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { editorErrorLine, lineNumberAt, sqlErrorLine, translateErrorLine } from './sqlError.js'
+import { editorErrorLine, lineNumberAt, normalizeNewlines, sqlErrorLine, translateErrorLine } from './sqlError.js'
+
+test('normalizeNewlines turns carriage returns into editor lines', () => {
+  assert.equal(normalizeNewlines('select 1;\r\nselect 2;\rselect 3;'), 'select 1;\nselect 2;\nselect 3;')
+})
 
 test('sqlErrorLine reads the leading line number', () => {
   assert.equal(sqlErrorLine('第 2 行：SQL 执行失败：no such column: bad'), 2)

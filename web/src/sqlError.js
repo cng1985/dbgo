@@ -1,3 +1,7 @@
+export function normalizeNewlines(value) {
+  return String(value ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+}
+
 export function sqlErrorLine(message) {
   const match = /^第\s*(\d+)\s*行/.exec(String(message || '').trim())
   if (!match) {

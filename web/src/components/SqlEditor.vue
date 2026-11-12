@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { normalizeNewlines } from '../sqlError.js'
 import { highlightSQL, suggestSQL } from '../sqlEditor.js'
 
 const props = defineProps({
@@ -18,7 +19,7 @@ const input = ref(null)
 const backdrop = ref(null)
 const gutter = ref(null)
 const menu = ref(null)
-const text = ref(props.modelValue || '')
+const text = ref(normalizeNewlines(props.modelValue))
 const items = ref([])
 const suggestion = ref({ from: 0, to: 0, prefix: '', mode: 'any', autoOpen: false })
 const open = ref(false)
@@ -47,7 +48,7 @@ const rows = computed(() => {
 })
 
 watch(() => props.modelValue, (value) => {
-  const next = value ?? ''
+  const next = normalizeNewlines(value)
   if (!input.value || input.value.value === next) {
     text.value = next
     return
@@ -112,8 +113,14 @@ function refreshSuggest(force) {
 }
 
 function onInput() {
-  text.value = input.value.value
-  emit('update:modelValue', text.value)
+  const next = normalizeNewlines(input.value.value)
+  if (input.value.value !== next) {
+    const caret = input.value.selectionStart
+    input.value.value = next
+    input.value.selectionStart = input.value.selectionEnd = caret
+  }
+  text.value = next
+  emit('update:modelValue', next)
   syncScroll()
   refreshSuggest(false)
 }
@@ -342,10 +349,11 @@ function onContextMenu(event) {
 defineExpose({ selection, replaceRange, insertAtCaret, revealLine })
 
 onMounted(() => {
+  const next = normalizeNewlines(props.modelValue)
   if (input.value) {
-    input.value.value = props.modelValue || ''
+    input.value.value = next
   }
-  text.value = props.modelValue || ''
+  text.value = next
   window.addEventListener('scroll', onViewport, true)
   window.addEventListener('resize', onViewport)
 })
