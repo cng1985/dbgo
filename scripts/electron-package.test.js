@@ -132,19 +132,32 @@ function readZipAttr(buf, name) {
 
 test('压缩包里的服务程序补上可执行权限', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dbgo-archive-'))
+  const helpers = [
+    'DBGo.app/Contents/Frameworks/DBGo Helper.app/Contents/MacOS/DBGo Helper',
+    'DBGo.app/Contents/Frameworks/DBGo Helper (Renderer).app/Contents/MacOS/DBGo Helper (Renderer)',
+    'DBGo.app/Contents/Frameworks/DBGo Helper (GPU).app/Contents/MacOS/DBGo Helper (GPU)',
+    'DBGo.app/Contents/Frameworks/DBGo Helper (Plugin).app/Contents/MacOS/DBGo Helper (Plugin)'
+  ]
   fs.writeFileSync(path.join(dir, 'app.tar.gz'), makeTar([
     { name: 'DBGo.app/Contents/MacOS/DBGo', data: 'mac', mode: 0o644 },
+    ...helpers.map((name) => ({ name, data: 'helper', mode: 0o644 })),
     { name: 'DBGo.app/Contents/Resources/bin/dbgo', data: 'go', mode: 0o644 },
     { name: 'readme.txt', data: 'hi', mode: 0o644 }
   ]))
   fs.writeFileSync(path.join(dir, 'app.zip'), makeZip([
+    { name: 'DBGo.app/Contents/MacOS/DBGo', data: 'mac', unix: false, mode: 0 },
+    ...helpers.map((name) => ({ name, data: 'helper', unix: false, mode: 0 })),
     { name: 'resources/bin/dbgo.exe', data: 'win', unix: false, mode: 0 },
+    { name: 'DBGo.app/Contents/Frameworks/Electron Framework.framework/Electron Framework', data: 'fw', unix: false, mode: 0 },
     { name: 'LICENSE.txt', data: 'lic', unix: true, mode: 0o100644 }
   ]))
   assert.equal(fixModes(dir), 2)
   assert.equal(fixModes(dir), 0)
   const gz = fs.readFileSync(path.join(dir, 'app.tar.gz'))
   assert.equal(readTarMode(gz, 'DBGo.app/Contents/MacOS/DBGo'), 0o755)
+  for (const name of helpers) {
+    assert.equal(readTarMode(gz, name), 0o755)
+  }
   assert.equal(readTarMode(gz, 'DBGo.app/Contents/Resources/bin/dbgo'), 0o755)
   assert.equal(readTarMode(gz, 'readme.txt'), 0o644)
   const raw = zlib.gunzipSync(gz)
@@ -163,9 +176,13 @@ test('压缩包里的服务程序补上可执行权限', () => {
     offset += 512 + Math.ceil(size / 512) * 512
   }
   const zip = fs.readFileSync(path.join(dir, 'app.zip'))
-  const exe = readZipAttr(zip, 'resources/bin/dbgo.exe')
-  assert.equal(exe.made >> 8, 3)
-  assert.equal((exe.attr >> 16) & 0o777, 0o755)
+  for (const name of ['DBGo.app/Contents/MacOS/DBGo', ...helpers, 'resources/bin/dbgo.exe']) {
+    const exe = readZipAttr(zip, name)
+    assert.equal(exe.made >> 8, 3, name)
+    assert.equal((exe.attr >> 16) & 0o777, 0o755, name)
+  }
+  const framework = readZipAttr(zip, 'DBGo.app/Contents/Frameworks/Electron Framework.framework/Electron Framework')
+  assert.equal(framework.made >> 8, 0)
   const license = readZipAttr(zip, 'LICENSE.txt')
   assert.equal((license.attr >> 16) & 0o777, 0o644)
   fs.rmSync(dir, { recursive: true, force: true })
