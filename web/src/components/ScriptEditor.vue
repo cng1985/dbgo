@@ -4,6 +4,7 @@ import { api, driverLabel, formatTime, statusText } from '../api'
 import { commentSQL, copyText, explainSQL, filterSQL, formatSQL, insertSQL } from '../sqlActions.js'
 import { buildEditFields, fieldChanged, querySource, rowKeys, updateRowSQL } from '../rowEdit.js'
 import { lineNumberAt, sqlErrorLine, translateErrorLine } from '../sqlError.js'
+import { cellPreview, cycleSort, formatCopiedCells, sortResultRows } from '../resultGrid.js'
 import SqlEditor from './SqlEditor.vue'
 
 const props = defineProps({
@@ -22,6 +23,7 @@ const result = ref(null)
 const history = ref([])
 const error = ref('')
 const errorLine = computed(() => sqlErrorLine(error.value))
+const sorts = ref({})
 const pending = ref(false)
 const panel = ref('result')
 const resultsHeight = ref(240)
@@ -137,8 +139,75 @@ function pickConnection(id) {
   props.tab.connectionId = id
 }
 
+function displayRows(statement, index) {
+  const sort = sorts.value[index]
+  return sortResultRows(statement.rows || [], sort?.column, sort?.direction)
+}
+
+function toggleSort(index, column) {
+  const next = { ...sorts.value }
+  const sorted = cycleSort(next[index], column)
+  if (sorted) {
+    next[index] = sorted
+  } else {
+    delete next[index]
+  }
+  sorts.value = next
+}
+
+function sortState(index, column) {
+  const sort = sorts.value[index]
+  if (!sort || sort.column !== column) {
+    return 'none'
+  }
+  return sort.direction === 'asc' ? 'ascending' : 'descending'
+}
+
+function selectedResultCells(grid) {
+  const selection = window.getSelection()
+  if (!selection || selection.isCollapsed) {
+    return []
+  }
+  const all = [...grid.querySelectorAll('td.result-cell')]
+  const nodeCell = (node) => {
+    const element = node?.nodeType === 1 ? node : node?.parentElement
+    return element?.closest?.('td.result-cell') || null
+  }
+  const start = nodeCell(selection.anchorNode)
+  const end = nodeCell(selection.focusNode)
+  if (start && end) {
+    const startAt = all.indexOf(start)
+    const endAt = all.indexOf(end)
+    if (startAt >= 0 && endAt >= 0) {
+      const from = Math.min(startAt, endAt)
+      const to = Math.max(startAt, endAt)
+      return all.slice(from, to + 1)
+    }
+  }
+  return all.filter((cell) => selection.containsNode(cell, true))
+}
+
+function onResultCopy(event, statementIndex) {
+  const cells = selectedResultCells(event.currentTarget)
+  if (!cells.some((cell) => cell.dataset.long === '1')) {
+    return
+  }
+  const statement = result.value?.statements?.[statementIndex]
+  const payload = formatCopiedCells(cells.map((cell) => ({
+    row: cell.dataset.row,
+    value: statement?.rows?.[Number(cell.dataset.row)]?.[Number(cell.dataset.col)]
+  })))
+  if (event.clipboardData) {
+    event.preventDefault()
+    event.clipboardData.setData('text/plain', payload)
+    return
+  }
+  copyText(payload)
+}
+
 async function run(sqlText, originLine) {
   error.value = ''
+  sorts.value = {}
   result.value = null
   panel.value = 'result'
   pending.value = true
@@ -575,18 +644,24 @@ defineExpose({ run, format, explain, optimize })
                 <span v-if="statement.truncated" class="tag">结果已截断</span>
                 <span class="muted">影响 {{ statement.rows_affected }} 行</span>
               </div>
-              <div v-if="statement.columns?.length" class="table-wrap result-grid">
+              <div v-if="statement.columns?.length" class="table-wrap result-grid" @copy="onResultCopy($event, index)">
                 <table>
                   <thead>
                     <tr>
                       <th class="rownum">#</th>
-                      <th v-for="column in statement.columns" :key="column.name">{{ column.name }}</th>
+                      <th v-for="(column, columnIndex) in statement.columns" :key="columnIndex" :aria-sort="sortState(index, columnIndex)">
+                        <button type="button" class="col-sort" :title="'按 ' + (column.name || '此列') + ' 排序'" @click="toggleSort(index, columnIndex)">
+                          <span>{{ column.name }}</span>
+                          <span v-if="sortState(index, columnIndex) === 'ascending'" class="sort-mark">↑</span>
+                          <span v-else-if="sortState(index, columnIndex) === 'descending'" class="sort-mark">↓</span>
+                        </button>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="(row, rowIndex) in statement.rows" :key="rowIndex" @contextmenu="openRowMenu($event, statement, row)">
-                      <td class="rownum">{{ rowIndex + 1 }}</td>
-                      <td v-for="(cell, cellIndex) in row" :key="cellIndex" :class="{ null: cell === null }">{{ cell === null ? 'NULL' : cell }}</td>
+                    <tr v-for="item in displayRows(statement, index)" :key="item.index" @contextmenu="openRowMenu($event, statement, item.row)">
+                      <td class="rownum">{{ item.index + 1 }}</td>
+                      <td v-for="(cell, cellIndex) in item.row" :key="cellIndex" class="result-cell" :class="{ null: cell === null }" :data-row="item.index" :data-col="cellIndex" :data-long="cellPreview(cell).long ? '1' : undefined">{{ cellPreview(cell).text }}</td>
                     </tr>
                   </tbody>
                 </table>

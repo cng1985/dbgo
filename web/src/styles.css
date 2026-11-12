@@ -484,6 +484,23 @@ td.wrap, .wrap { white-space: normal; }
 .statement { display: grid; gap: 6px; padding: 8px; }
 .result-grid { max-height: none; border-left: 0; border-right: 0; border-radius: 0; }
 .result-grid th { position: sticky; top: 0; z-index: 1; }
+.result-grid .col-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 280px;
+  margin: -6px -8px;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 650;
+  text-align: left;
+}
+.result-grid .col-sort span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.result-grid .sort-mark { color: var(--accent-deep); font-size: 11px; }
+.result-grid td.result-cell { max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
 .rownum { width: 42px; color: var(--muted); text-align: right; }
 td.null { color: #9a9a9a; font-style: italic; }
 
