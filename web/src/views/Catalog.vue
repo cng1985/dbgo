@@ -1,22 +1,30 @@
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api } from '../api'
+import { filterTables, pickSchema } from '../catalogView.js'
 
 const connections = ref([])
 const connectionID = ref('')
 const schemas = ref([])
 const schema = ref('')
 const tables = ref([])
+const keyword = ref('')
 const table = ref('')
 const columns = ref([])
 const indexes = ref([])
 const error = ref('')
 const props = defineProps({
   preferredConnection: { type: String, default: '' },
+  preferredSchema: { type: String, default: '' },
+  focusSeq: { type: Number, default: 0 },
   revision: { type: Number, default: 0 },
   structureRefresh: { type: Object, default: null }
 })
+const emit = defineEmits(['schema'])
+const selected = computed(() => connections.value.find((item) => item.id === connectionID.value))
+const visibleTables = computed(() => filterTables(tables.value, keyword.value))
 let structureHold = 0
+let appliedFocus = 0
 
 async function loadConnections() {
   const page = await api('/api/connection/search', { page: 1, page_size: 100, sort: 'name', direction: 'asc' })
@@ -26,16 +34,27 @@ async function loadConnections() {
   }
 }
 
+function requestedSchema() {
+  if (props.focusSeq && appliedFocus !== props.focusSeq) {
+    return props.preferredSchema || ''
+  }
+  return schema.value || props.preferredSchema || ''
+}
+
 async function loadSchemas() {
+  const requested = requestedSchema()
   schemas.value = []
   schema.value = ''
   tables.value = []
+  keyword.value = ''
   if (!connectionID.value) {
+    appliedFocus = props.focusSeq || appliedFocus
     return
   }
   const result = (await api('/api/catalog/schemas', { connection_id: connectionID.value })).data
   schemas.value = result.schemas || []
-  schema.value = schemas.value[0]?.name || ''
+  schema.value = pickSchema(selected.value?.driver, schemas.value, requested, selected.value?.database_name || '')
+  appliedFocus = props.focusSeq || appliedFocus
 }
 
 async function loadTables() {
@@ -87,7 +106,9 @@ async function refreshStructure(info) {
     const schemaResult = (await api('/api/catalog/schemas', { connection_id: connectionID.value })).data
     schemas.value = schemaResult.schemas || []
     const schemaNames = new Set(schemas.value.map((item) => item.name))
-    schema.value = schemaNames.has(keepSchema) || keepSchema === '' ? keepSchema : (schemas.value[0]?.name || '')
+    schema.value = schemaNames.has(keepSchema) || keepSchema === ''
+      ? keepSchema
+      : pickSchema(selected.value?.driver, schemas.value, '', selected.value?.database_name || '')
     const tableResult = (await api('/api/catalog/tables', {
       connection_id: connectionID.value,
       schema: schema.value
@@ -114,10 +135,12 @@ watch(connectionID, async () => {
     error.value = err.message
   }
 })
-watch(schema, async () => {
+watch(schema, async (value) => {
+  emit('schema', value || '')
   if (structureHold) {
     return
   }
+  keyword.value = ''
   try {
     await loadTables()
   } catch (err) {
@@ -141,6 +164,25 @@ watch(() => props.preferredConnection, (id) => {
   }
 })
 
+watch(() => props.focusSeq, () => {
+  if (!props.focusSeq) {
+    return
+  }
+  keyword.value = ''
+  if (props.preferredConnection && props.preferredConnection !== connectionID.value) {
+    connectionID.value = props.preferredConnection
+    return
+  }
+  if (props.preferredSchema && schemas.value.some((item) => item.name === props.preferredSchema)) {
+    schema.value = props.preferredSchema
+    appliedFocus = props.focusSeq
+    return
+  }
+  loadSchemas().catch((err) => {
+    error.value = err.message
+  })
+})
+
 watch(() => props.revision, (value, previous) => {
   if (previous === undefined || value === previous) {
     return
@@ -157,10 +199,10 @@ watch(() => props.structureRefresh?.seq, (value, previous) => {
 
 onMounted(async () => {
   try {
-    if (props.preferredConnection) {
+    await loadConnections()
+    if (props.preferredConnection && connectionID.value !== props.preferredConnection) {
       connectionID.value = props.preferredConnection
     }
-    await loadConnections()
   } catch (err) {
     error.value = err.message
   }
@@ -168,7 +210,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="page">
+  <div class="page catalog-page">
     <p v-if="error" class="notice">{{ error }}</p>
     <div class="toolbar">
       <select v-model="connectionID">
@@ -181,15 +223,22 @@ onMounted(async () => {
       </select>
     </div>
     <div class="split">
-      <section class="card">
-        <h2>表</h2>
-        <div v-if="!tables.length" class="empty">这个连接下还没有表。</div>
-        <button v-for="item in tables" :key="item.schema + item.name" class="history" type="button" :class="{ picked: item.name === table }" @click="table = item.name">
-          <strong>{{ item.name }}</strong>
-          <small class="muted">{{ item.type }}</small>
-        </button>
+      <section class="card catalog-tables">
+        <div class="catalog-table-head">
+          <h2>表</h2>
+          <span v-if="tables.length" class="muted">{{ visibleTables.length }}/{{ tables.length }}</span>
+        </div>
+        <input v-model="keyword" class="catalog-filter" type="search" placeholder="搜索表" aria-label="搜索表" />
+        <div class="catalog-table-list">
+          <div v-if="!tables.length" class="empty">这个连接下还没有表。</div>
+          <div v-else-if="!visibleTables.length" class="empty">没有匹配的表。</div>
+          <button v-for="item in visibleTables" :key="item.schema + item.name" class="history" type="button" :class="{ picked: item.name === table }" @click="table = item.name">
+            <strong>{{ item.name }}</strong>
+            <small class="muted">{{ item.type }}</small>
+          </button>
+        </div>
       </section>
-      <section class="stack">
+      <section class="stack catalog-detail">
         <div class="card">
           <h2>字段</h2>
           <div class="table-wrap">

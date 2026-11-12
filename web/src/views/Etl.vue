@@ -1,6 +1,7 @@
 <script setup>
-import { onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api, formatTime, statusText } from '../api'
+import { schemaPlaceholder } from '../catalogView.js'
 
 const props = defineProps({
   preferredConnection: { type: String, default: '' },
@@ -26,6 +27,10 @@ const form = reactive(blank())
 let ready = false
 
 const modeText = { append: '追加', replace: '清空后写入' }
+const targetSchemaHint = computed(() => {
+  const row = connections.value.find((item) => item.id === form.target_connection_id)
+  return row ? schemaPlaceholder(row.driver, row.database_name) : '留空使用默认模式'
+})
 
 function blank() {
   return {
@@ -350,7 +355,7 @@ onMounted(async () => {
               </tbody>
             </table>
           </div>
-          <label class="field"><span>目标模式</span><input v-model="form.target_schema" placeholder="留空使用默认模式" /></label>
+          <label class="field"><span>目标模式</span><input v-model="form.target_schema" :placeholder="targetSchemaHint" /></label>
           <label class="field"><span>目标表</span><input v-model="form.target_table" required /></label>
           <label class="field"><span>写入方式</span>
             <select v-model="form.write_mode">
