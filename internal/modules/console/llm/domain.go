@@ -76,3 +76,30 @@ type OptimizeResponse struct {
 	SQL         string   `json:"sql"`
 	Notes       []string `json:"notes"`
 }
+
+type DesignTableRequest struct {
+	ConnectionID int64  `json:"connection_id,string"`
+	ProfileID    int64  `json:"profile_id,string"`
+	Schema       string `json:"schema"`
+	Prompt       string `json:"prompt"`
+}
+
+type DesignColumn struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Nullable bool   `json:"nullable"`
+	Primary  bool   `json:"primary"`
+	Identity bool   `json:"identity"`
+	Default  string `json:"default"`
+	Comment  string `json:"comment"`
+}
+
+type DesignTableResponse struct {
+	ProfileName string         `json:"profile_name"`
+	Model       string         `json:"model"`
+	Summary     string         `json:"summary"`
+	Name        string         `json:"name"`
+	Comment     string         `json:"comment"`
+	Columns     []DesignColumn `json:"columns"`
+	Notes       []string       `json:"notes"`
+}

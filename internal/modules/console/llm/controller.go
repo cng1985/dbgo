@@ -23,6 +23,7 @@ func (c *Controller) Register(groups routing.Groups) {
 	groups.Private.POST("/llm/delete", c.delete)
 	groups.Long.POST("/llm/test", c.test)
 	groups.Long.POST("/llm/optimize", c.optimize)
+	groups.Long.POST("/llm/design-table", c.designTable)
 }
 
 func (c *Controller) create(ctx *gin.Context) {
@@ -116,6 +117,20 @@ func (c *Controller) optimize(ctx *gin.Context) {
 		return
 	}
 	result, err := c.resource.Optimize(ctx.Request.Context(), &request)
+	if err != nil {
+		response.HandleError(ctx, err)
+		return
+	}
+	response.SuccessResponse(ctx, result)
+}
+
+func (c *Controller) designTable(ctx *gin.Context) {
+	var request DesignTableRequest
+	if err := response.BindJSON(ctx, &request); err != nil {
+		response.HandleError(ctx, err)
+		return
+	}
+	result, err := c.resource.DesignTable(ctx.Request.Context(), &request)
 	if err != nil {
 		response.HandleError(ctx, err)
 		return

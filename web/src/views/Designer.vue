@@ -1,7 +1,8 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { api, driverLabel } from '../api'
 import { columnTypeFor, columnTypeOptions, defaultColumnType, matchColumnType } from '../columnTypes.js'
+import { designTarget, sameDesignTarget } from '../designTarget.js'
 import { nextAutoSchema, schemaPlaceholder } from '../catalogView.js'
 import ProcedureStudio from '../components/ProcedureStudio.vue'
 import {
@@ -89,6 +90,11 @@ function optionsFor(type) {
 }
 
 const columns = ref([blankColumn(true)])
+const aiPrompt = ref('')
+const aiNotes = ref([])
+const aiComment = ref('')
+const aiPromptEl = ref(null)
+let designToken = 0
 const params = ref([])
 const description = ref('')
 const objectId = ref('')
@@ -176,6 +182,8 @@ watch(() => props.command, async (command) => {
   if (!command?.seq) {
     return
   }
+  designToken += 1
+  pending.value = false
   kind.value = command.kind || 'table'
   if (command.connectionId) {
     connectionID.value = command.connectionId
@@ -194,6 +202,9 @@ watch(() => props.command, async (command) => {
   openedAsEdit.value = command.type === 'edit'
   error.value = ''
   note.value = ''
+  aiPrompt.value = ''
+  aiNotes.value = []
+  aiComment.value = ''
   description.value = ''
   objectId.value = ''
   savedDescription.value = ''
@@ -211,6 +222,10 @@ watch(() => props.command, async (command) => {
       sql.value = procedureTemplate(driver.value, schema.value, name.value, kind.value)
       procedureDraft.value = sql.value
     }
+  }
+  if (command.ai && kind.value === 'table') {
+    await nextTick()
+    aiPromptEl.value?.focus()
   }
 }, { immediate: true })
 
@@ -266,6 +281,107 @@ function payload() {
     returns: returns.value,
     language: language.value,
     body: body.value
+  }
+}
+
+function currentDesignTarget() {
+  return designTarget(connectionID.value, schema.value, driver.value, kind.value)
+}
+
+function discardDesignResult(token, target) {
+  if (token !== designToken) {
+    return true
+  }
+  if (!sameDesignTarget(target, currentDesignTarget())) {
+    error.value = '连接、模式或对象类型已改变，这次生成的结构已丢弃。'
+    note.value = ''
+    return true
+  }
+  return false
+}
+
+async function designWithAI() {
+  error.value = ''
+  note.value = ''
+  aiNotes.value = []
+  aiComment.value = ''
+  if (!connectionID.value) {
+    error.value = '请选择连接'
+    return
+  }
+  const prompt = aiPrompt.value.trim()
+  if (!prompt) {
+    error.value = '请先描述要建的表'
+    return
+  }
+  const token = ++designToken
+  const target = currentDesignTarget()
+  pending.value = true
+  try {
+    const result = (await api('/api/llm/design-table', {
+      connection_id: target.connectionID,
+      schema: target.schema,
+      prompt
+    })).data
+    if (discardDesignResult(token, target)) {
+      return
+    }
+    const loaded = Array.isArray(result?.columns) ? result.columns : []
+    if (!result?.name || !loaded.length) {
+      error.value = '模型没有返回可识别的表结构'
+      return
+    }
+    const nextColumns = loaded.map((item) => ({
+      origin: '',
+      name: item.name || '',
+      type: matchColumnType(target.driver, item.type),
+      nullable: !!item.nullable,
+      primary: !!item.primary,
+      identity: !!item.identity,
+      default: item.default || '',
+      comment: item.comment || ''
+    }))
+    let sqlText = ''
+    let previewError = ''
+    try {
+      const previewed = (await api('/api/catalog/preview', {
+        driver: target.driver,
+        schema: target.schema,
+        kind: 'table',
+        name: result.name,
+        replace: false,
+        columns: nextColumns.filter((item) => item.name.trim()),
+        select_sql: selectSQL.value,
+        params: params.value.filter((item) => item.name.trim()),
+        returns: returns.value,
+        language: language.value,
+        body: body.value
+      })).data
+      sqlText = previewed.sql || ''
+    } catch (err) {
+      previewError = err.message
+    }
+    if (discardDesignResult(token, target)) {
+      return
+    }
+    name.value = result.name
+    columns.value = nextColumns
+    baselineColumns.value = null
+    openedAsEdit.value = false
+    replace.value = false
+    sql.value = sqlText
+    aiComment.value = result.comment || ''
+    aiNotes.value = Array.isArray(result.notes) ? result.notes : []
+    note.value = result.summary || '已填入表结构，确认后再执行。'
+    error.value = previewError
+  } catch (err) {
+    if (!discardDesignResult(token, target)) {
+      error.value = err.message
+    }
+  } finally {
+    if (token === designToken) {
+      pending.value = false
+    }
   }
 }
 
@@ -604,12 +720,12 @@ async function apply() {
     <p v-if="sqliteRoutine" class="notice">SQLite 不支持在控制台创建存储过程或函数。</p>
     <div class="toolbar">
       <div class="row grow">
-        <select :value="connectionID" aria-label="连接" @change="onConnectionChange">
+        <select :value="connectionID" aria-label="连接" :disabled="pending" @change="onConnectionChange">
           <option value="" disabled>选择连接</option>
           <option v-for="item in connections" :key="item.id" :value="item.id">{{ item.name }}</option>
         </select>
-        <input v-model="schema" :placeholder="schemaHint" aria-label="模式" />
-        <select v-model="kind" aria-label="对象类型">
+        <input v-model="schema" :placeholder="schemaHint" aria-label="模式" :disabled="pending" />
+        <select v-model="kind" aria-label="对象类型" :disabled="pending">
           <option value="table">表</option>
           <option value="view">视图</option>
           <option value="procedure">存储过程</option>
@@ -624,6 +740,26 @@ async function apply() {
         <button v-if="editingTable" class="btn btn-primary" type="button" :disabled="pending" @click="updateStructure">更新结构</button>
         <button v-else-if="!blockTableExecute" class="btn btn-primary" type="button" :disabled="pending" @click="apply">执行</button>
       </div>
+    </div>
+
+    <div v-if="kind === 'table'" class="card">
+      <div class="toolbar">
+        <div class="row">
+          <h2>AI 建表</h2>
+        </div>
+      </div>
+      <label class="field">
+        <span>用一句话描述要建的表</span>
+        <textarea ref="aiPromptEl" v-model="aiPrompt" class="ai-prompt" rows="3" aria-label="建表描述" placeholder="例如：订单表，包含订单号、客户、金额、状态和下单时间" />
+      </label>
+      <div class="row">
+        <button class="btn btn-primary" type="button" :disabled="pending || !aiPrompt.trim()" @click="designWithAI">生成结构</button>
+        <span class="muted">确认字段和 SQL 后再执行。</span>
+      </div>
+      <p v-if="aiComment" class="muted">表说明：{{ aiComment }}</p>
+      <ul v-if="aiNotes.length" class="ai-notes">
+        <li v-for="(item, index) in aiNotes" :key="index">{{ item }}</li>
+      </ul>
     </div>
 
     <div v-if="kind === 'table'" class="card">

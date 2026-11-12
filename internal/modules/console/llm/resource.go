@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cng1985/dbgo/internal/modules/console/shared"
 	"github.com/cng1985/dbgo/internal/platform/domain"
@@ -201,6 +202,67 @@ func (r *Resource) Optimize(ctx context.Context, request *OptimizeRequest) (resp
 		SQL:         parsed.SQL,
 		Notes:       parsed.Notes,
 	}), nil
+}
+
+func (r *Resource) DesignTable(ctx context.Context, request *DesignTableRequest) (response.Response[DesignTableResponse], error) {
+	var zero response.Response[DesignTableResponse]
+	if _, err := r.authorize(ctx, "llm:read"); err != nil {
+		return zero, err
+	}
+	if request == nil || request.ConnectionID <= 0 {
+		return zero, apperrors.Invalid("请选择连接")
+	}
+	prompt := strings.TrimSpace(request.Prompt)
+	if prompt == "" {
+		return zero, apperrors.Invalid("请描述要建的表")
+	}
+	if utf8.RuneCountInString(prompt) > 2000 {
+		return zero, apperrors.TooLarge("描述超过长度限制")
+	}
+	target, err := r.opener.Open(ctx, request.ConnectionID)
+	if err != nil {
+		return zero, err
+	}
+	defer target.Close()
+	driver := shared.NormalizeDriver(target.Driver)
+	if driver == "" {
+		return zero, apperrors.Invalid("当前连接的数据库类型无法建表")
+	}
+	schema := strings.TrimSpace(request.Schema)
+	if schema == "" {
+		schema = target.Schema
+	}
+	tables := ""
+	existing := []string{}
+	catalog, err := shared.ListSuggest(ctx, target.DB, target.Driver, schema)
+	if err == nil {
+		tables = schemaBrief(catalog)
+		for _, table := range catalog.Tables {
+			existing = append(existing, table.Name)
+		}
+	}
+	endpoint, profile, err := r.endpoint(ctx, request.ProfileID)
+	if err != nil {
+		return zero, err
+	}
+	content, err := Complete(ctx, endpoint, designMessages(driver, schema, prompt, tables))
+	if err != nil {
+		return zero, apperrors.Business(10005, apperrors.KindUnavailable, "模型建表失败："+clip(err.Error()), err)
+	}
+	parsed, err := parseDesign(content)
+	if err != nil {
+		return zero, apperrors.Business(10005, apperrors.KindUnavailable, "模型没有返回可识别的表结构", err)
+	}
+	designed, err := normalizeDesign(driver, parsed, existing)
+	if err != nil {
+		return zero, apperrors.Business(10005, apperrors.KindUnavailable, err.Error(), err)
+	}
+	designed.ProfileName = profile.Name
+	designed.Model = profile.Model
+	if designed.Notes == nil {
+		designed.Notes = []string{}
+	}
+	return response.OK(designed), nil
 }
 
 func (r *Resource) endpoint(ctx context.Context, id int64) (Endpoint, *Profile, error) {
