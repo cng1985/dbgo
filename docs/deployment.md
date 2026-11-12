@@ -51,21 +51,23 @@ Windows CMD 使用 `scripts\build-platforms.cmd`。脚本不依赖当前工作�
 
 ## 桌面发行
 
-在仓库根目录执行：
+Windows 在仓库里执行 `scripts\build-electron.cmd`。它调用 PowerShell，不需要 Git Bash 或 WSL。Linux 和 macOS 执行：
 
 ```bash
 ./scripts/build-electron.sh
 ```
 
-脚本先构建页面，再用 `CGO_ENABLED=0` 交叉编译服务程序，然后用 Electron 打出这些包：
+两条命令都先构建页面，再用 `CGO_ENABLED=0` 交叉编译服务程序，然后用 Electron 打出这些包：
 
 | 系统 | 架构 | 产物 |
 | --- | --- | --- |
 | Windows | x64 | `DBGo-*-win.zip` |
 | macOS | x64、arm64 | `DBGo-*-mac.zip` |
-| Linux | x64、arm64 | `DBGo-*.AppImage` 和 `dbgo-*.tar.gz` |
+| Linux | x64、arm64 | `dbgo-*.tar.gz`；在 Linux 上还会生成 `DBGo-*.AppImage` |
 
 产物在 `electron/dist/`。macOS 包未签名。Windows 是压缩包，不需要安装程序。只编当前系统时加 `--current`。
+
+在 Windows 上可以打出 Windows zip、macOS zip 和 Linux tar.gz。AppImage 的打包工具是 Linux 程序，所以只在 Linux 上生成。Windows 打出的 macOS 和 Linux 压缩包会补上 `DBGo` 和 `dbgo` 的可执行权限。若 macOS 打包提示无法创建符号链接，先在 Windows 设置中打开开发人员模式。需要已安装 Node.js 和 Go。
 
 桌面窗口监听 `127.0.0.1` 的空闲端口，不使用生产 profile，因此会话 Cookie 可以在本机页面上保存。启动时丢掉继承的 `APP_` 环境变量，应用库固定为用户目录里的 SQLite，不会沿用本机服务的数据库连接。数据目录在 Electron 的 `userData/data`，日志在 `userData/logs/dbgo.log`。第一次启动生成 `initial-admin-password.txt`，并用对话框给出 `admin` 和口令。关闭窗口时结束服务程序。Windows 压缩包不签名，在 Linux 上打包不需要 Wine。
 
