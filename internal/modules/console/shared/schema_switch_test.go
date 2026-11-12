@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cng1985/dbgo/internal/platform/sqlscript"
 )
 
 func TestSchemaSwitchSQL(t *testing.T) {
@@ -83,9 +85,9 @@ func TestExecuteSwitchedKeepsTheSameConnection(t *testing.T) {
 	db.SetMaxOpenConns(2)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	results, err := executeSwitched(ctx, db, "sqlite", []string{
-		"insert into marker (id) values (1)",
-		"select count(*) from marker",
+	results, err := executeSwitched(ctx, db, "sqlite", []sqlscript.Part{
+		{Text: "insert into marker (id) values (1)", Line: 1},
+		{Text: "select count(*) from marker", Line: 2},
 	}, ExecOptions{MaxRows: 10}, "create temp table marker (id integer)")
 	if err != nil {
 		t.Fatal(err)
