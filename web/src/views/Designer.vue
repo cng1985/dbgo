@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { api, driverLabel } from '../api'
 import { columnTypeFor, columnTypeOptions, defaultColumnType, matchColumnType } from '../columnTypes.js'
+import { designTarget, sameDesignTarget } from '../designTarget.js'
 import { nextAutoSchema, schemaPlaceholder } from '../catalogView.js'
 import ProcedureStudio from '../components/ProcedureStudio.vue'
 import {
@@ -93,6 +94,7 @@ const aiPrompt = ref('')
 const aiNotes = ref([])
 const aiComment = ref('')
 const aiPromptEl = ref(null)
+let designToken = 0
 const params = ref([])
 const description = ref('')
 const objectId = ref('')
@@ -180,6 +182,8 @@ watch(() => props.command, async (command) => {
   if (!command?.seq) {
     return
   }
+  designToken += 1
+  pending.value = false
   kind.value = command.kind || 'table'
   if (command.connectionId) {
     connectionID.value = command.connectionId
@@ -280,6 +284,22 @@ function payload() {
   }
 }
 
+function currentDesignTarget() {
+  return designTarget(connectionID.value, schema.value, driver.value, kind.value)
+}
+
+function discardDesignResult(token, target) {
+  if (token !== designToken) {
+    return true
+  }
+  if (!sameDesignTarget(target, currentDesignTarget())) {
+    error.value = '连接、模式或对象类型已改变，这次生成的结构已丢弃。'
+    note.value = ''
+    return true
+  }
+  return false
+}
+
 async function designWithAI() {
   error.value = ''
   note.value = ''
@@ -294,46 +314,74 @@ async function designWithAI() {
     error.value = '请先描述要建的表'
     return
   }
+  const token = ++designToken
+  const target = currentDesignTarget()
   pending.value = true
   try {
     const result = (await api('/api/llm/design-table', {
-      connection_id: connectionID.value,
-      schema: schema.value,
+      connection_id: target.connectionID,
+      schema: target.schema,
       prompt
     })).data
+    if (discardDesignResult(token, target)) {
+      return
+    }
     const loaded = Array.isArray(result?.columns) ? result.columns : []
     if (!result?.name || !loaded.length) {
       error.value = '模型没有返回可识别的表结构'
       return
     }
-    name.value = result.name
-    columns.value = loaded.map((item) => ({
+    const nextColumns = loaded.map((item) => ({
       origin: '',
       name: item.name || '',
-      type: matchColumnType(driver.value, item.type),
+      type: matchColumnType(target.driver, item.type),
       nullable: !!item.nullable,
       primary: !!item.primary,
       identity: !!item.identity,
       default: item.default || '',
       comment: item.comment || ''
     }))
+    let sqlText = ''
+    let previewError = ''
+    try {
+      const previewed = (await api('/api/catalog/preview', {
+        driver: target.driver,
+        schema: target.schema,
+        kind: 'table',
+        name: result.name,
+        replace: false,
+        columns: nextColumns.filter((item) => item.name.trim()),
+        select_sql: selectSQL.value,
+        params: params.value.filter((item) => item.name.trim()),
+        returns: returns.value,
+        language: language.value,
+        body: body.value
+      })).data
+      sqlText = previewed.sql || ''
+    } catch (err) {
+      previewError = err.message
+    }
+    if (discardDesignResult(token, target)) {
+      return
+    }
+    name.value = result.name
+    columns.value = nextColumns
     baselineColumns.value = null
     openedAsEdit.value = false
     replace.value = false
-    sql.value = ''
+    sql.value = sqlText
     aiComment.value = result.comment || ''
     aiNotes.value = Array.isArray(result.notes) ? result.notes : []
     note.value = result.summary || '已填入表结构，确认后再执行。'
-    try {
-      const previewed = (await api('/api/catalog/preview', payload())).data
-      sql.value = previewed.sql || ''
-    } catch (err) {
+    error.value = previewError
+  } catch (err) {
+    if (!discardDesignResult(token, target)) {
       error.value = err.message
     }
-  } catch (err) {
-    error.value = err.message
   } finally {
-    pending.value = false
+    if (token === designToken) {
+      pending.value = false
+    }
   }
 }
 
@@ -672,12 +720,12 @@ async function apply() {
     <p v-if="sqliteRoutine" class="notice">SQLite 不支持在控制台创建存储过程或函数。</p>
     <div class="toolbar">
       <div class="row grow">
-        <select :value="connectionID" aria-label="连接" @change="onConnectionChange">
+        <select :value="connectionID" aria-label="连接" :disabled="pending" @change="onConnectionChange">
           <option value="" disabled>选择连接</option>
           <option v-for="item in connections" :key="item.id" :value="item.id">{{ item.name }}</option>
         </select>
-        <input v-model="schema" :placeholder="schemaHint" aria-label="模式" />
-        <select v-model="kind" aria-label="对象类型">
+        <input v-model="schema" :placeholder="schemaHint" aria-label="模式" :disabled="pending" />
+        <select v-model="kind" aria-label="对象类型" :disabled="pending">
           <option value="table">表</option>
           <option value="view">视图</option>
           <option value="procedure">存储过程</option>
