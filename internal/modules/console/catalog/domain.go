@@ -70,14 +70,16 @@ type CatalogObjectsResponse struct {
 }
 
 type CatalogDefinitionResponse struct {
-	Driver   string               `json:"driver"`
-	Schema   string               `json:"schema"`
-	Name     string               `json:"name"`
-	Kind     string               `json:"kind"`
-	SQL      string               `json:"sql"`
-	Editable bool                 `json:"editable"`
-	Note     string               `json:"note,omitempty"`
-	Columns  []CatalogColumnDraft `json:"columns,omitempty"`
+	Driver      string               `json:"driver"`
+	Schema      string               `json:"schema"`
+	Name        string               `json:"name"`
+	Kind        string               `json:"kind"`
+	SQL         string               `json:"sql"`
+	Editable    bool                 `json:"editable"`
+	Note        string               `json:"note,omitempty"`
+	ObjectID    string               `json:"object_id,omitempty"`
+	Description string               `json:"description,omitempty"`
+	Columns     []CatalogColumnDraft `json:"columns,omitempty"`
 }
 
 type CatalogColumnDraft struct {

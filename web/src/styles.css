@@ -149,8 +149,62 @@ td.wrap, .wrap { white-space: normal; }
 .tag.bad { background: #fdeceb; color: var(--clay); }
 .tag.good { background: #e7f6ec; color: var(--moss); }
 .split { display: grid; grid-template-columns: minmax(180px, 240px) 1fr; gap: 12px; align-items: start; }
-.wb-pane > .tool-scroll:has(.catalog-page) { display: flex; flex-direction: column; overflow: hidden; }
-.page.catalog-page { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; align-content: stretch; }
+.wb-pane > .tool-scroll:has(.catalog-page),
+.wb-pane > .tool-scroll:has(.procedure-page) { display: flex; flex-direction: column; overflow: hidden; }
+.page.catalog-page, .page.procedure-page { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; align-content: stretch; }
+.page.procedure-page { padding: 0; gap: 0; }
+.procedure-studio { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #fff; }
+.procedure-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 6px 8px;
+  background: #f7f7f7;
+  border-bottom: 1px solid var(--line);
+}
+.procedure-meta label { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+.procedure-meta label.grow { flex: 1 1 240px; }
+.procedure-meta label.grow input { flex: 1; min-width: 120px; }
+.procedure-meta input[aria-label="存储过程名称"] { width: 220px; }
+.procedure-meta input[aria-label="ID"] { width: 108px; }
+.procedure-note { margin: 0; border-radius: 0; }
+.procedure-body { flex: 1; min-height: 0; display: flex; }
+.procedure-side {
+  flex: 0 0 132px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+  background: #f7f7f7;
+  padding: 4px 0;
+}
+.procedure-side button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+}
+.procedure-side button.active { background: var(--select); }
+.procedure-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.procedure-params { flex: 1; min-height: 0; overflow: auto; padding: 8px; }
+.procedure-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px;
+  background: #f3f3f3;
+  border-top: 1px solid var(--line);
+}
+.procedure-foot .btn { display: inline-flex; align-items: center; gap: 4px; height: 24px; }
+.procedure-source { margin-left: auto; padding: 2px 10px; background: #fff; border: 1px solid var(--line); border-bottom: 0; }
 .catalog-page .split { flex: 1; min-height: 0; align-items: stretch; grid-template-rows: minmax(0, 1fr); }
 .catalog-tables { min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
 .catalog-table-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
@@ -676,7 +730,9 @@ td.null { color: #9a9a9a; font-style: italic; }
 
 @media (max-width: 860px) {
   .login, .split, .split-wide, .form-grid, .account-grid { grid-template-columns: 1fr; }
-  .wb-pane > .tool-scroll:has(.catalog-page) { overflow: auto; }
+  .wb-pane > .tool-scroll:has(.catalog-page),
+  .wb-pane > .tool-scroll:has(.procedure-page) { overflow: auto; }
+  .page.procedure-page { min-height: 520px; }
   .page.catalog-page { flex: none; overflow: visible; }
   .catalog-table-list { flex: none; max-height: 240px; }
   .catalog-detail { overflow: visible; }

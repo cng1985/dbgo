@@ -420,6 +420,73 @@ func longestText(ctx context.Context, db *sql.DB, query string, args ...any) (st
 	return strings.TrimSpace(best), nil
 }
 
+// RoutineMeta 读取存储过程或函数的编号和说明。SQLite 没有这类对象。
+// 说明读不到时返回空字符串，不代替定义本身失败。
+func RoutineMeta(ctx context.Context, db *sql.DB, driver, schema, name, kind string) (string, string, error) {
+	driver = NormalizeDriver(driver)
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if driver == "" || driver == "sqlite" || (kind != "procedure" && kind != "function") {
+		return "", "", nil
+	}
+	switch driver {
+	case "mysql":
+		routineType := "PROCEDURE"
+		if kind == "function" {
+			routineType = "FUNCTION"
+		}
+		var comment sql.NullString
+		query := RewritePlaceholders(driver, `select routine_comment
+			from information_schema.routines
+			where routine_schema = ? and routine_name = ? and upper(routine_type) = ?`)
+		err := db.QueryRowContext(ctx, query, schema, name, routineType).Scan(&comment)
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", "", nil
+		}
+		if err != nil {
+			return "", "", err
+		}
+		return "", strings.TrimSpace(comment.String), nil
+	case "postgres":
+		prokind := "f"
+		if kind == "procedure" {
+			prokind = "p"
+		}
+		var objectID, comment sql.NullString
+		query := RewritePlaceholders(driver, `select p.oid::text, obj_description(p.oid, 'pg_proc')
+			from pg_proc p
+			join pg_namespace n on n.oid = p.pronamespace
+			where n.nspname = ? and p.proname = ? and p.prokind = ?
+			limit 1`)
+		err := db.QueryRowContext(ctx, query, schema, name, prokind).Scan(&objectID, &comment)
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", "", nil
+		}
+		if err != nil {
+			return "", "", err
+		}
+		return strings.TrimSpace(objectID.String), strings.TrimSpace(comment.String), nil
+	default:
+		filter := "o.type = 'P'"
+		if kind == "function" {
+			filter = "o.type in ('FN', 'IF', 'TF')"
+		}
+		var objectID, comment sql.NullString
+		query := RewritePlaceholders(driver, `select convert(varchar(32), o.object_id), convert(nvarchar(4000), ep.value)
+			from sys.objects o
+			inner join sys.schemas s on s.schema_id = o.schema_id
+			left join sys.extended_properties ep on ep.major_id = o.object_id and ep.minor_id = 0 and ep.name = N'MS_Description'
+			where s.name = ? and o.name = ? and `+filter)
+		err := db.QueryRowContext(ctx, query, schema, name).Scan(&objectID, &comment)
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", "", nil
+		}
+		if err != nil {
+			return "", "", err
+		}
+		return strings.TrimSpace(objectID.String), strings.TrimSpace(comment.String), nil
+	}
+}
+
 func isMissing(err error) bool {
 	if err == nil {
 		return false

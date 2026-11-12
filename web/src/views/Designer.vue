@@ -3,6 +3,16 @@ import { computed, ref, watch } from 'vue'
 import { api, driverLabel } from '../api'
 import { columnTypeFor, columnTypeOptions, defaultColumnType, matchColumnType } from '../columnTypes.js'
 import { nextAutoSchema, schemaPlaceholder } from '../catalogView.js'
+import ProcedureStudio from '../components/ProcedureStudio.vue'
+import {
+  applyProcedureParams,
+  procedureCommentSQL,
+  procedureName,
+  procedureParams,
+  procedureSaveSQL,
+  procedureTemplate,
+  setProcedureIdentity
+} from '../procedureScript.js'
 
 const props = defineProps({
   command: { type: Object, default: null },
@@ -72,6 +82,11 @@ function blankParam() {
 
 const columns = ref([blankColumn(true)])
 const params = ref([])
+const description = ref('')
+const objectId = ref('')
+const savedDescription = ref('')
+const procedureExisting = ref(false)
+const procedureDraft = ref('')
 const baselineColumns = ref(null)
 const baselineName = ref('')
 const baselineSchema = ref('')
@@ -94,6 +109,12 @@ function syncAutoSchema() {
   )
   schema.value = next.schema
   autoSchema.value = next.autoSchema
+  if (kind.value === 'procedure' && !procedureExisting.value && sql.value.trim()) {
+    const proc = name.value.trim() || procedureName(sql.value)
+    if (proc) {
+      sql.value = setProcedureIdentity(sql.value, driver.value, schema.value, proc)
+    }
+  }
 }
 
 function onConnectionChange(event) {
@@ -113,6 +134,10 @@ watch(driver, (value, previous) => {
     return
   }
   syncAutoSchema()
+  if (kind.value === 'procedure' && !procedureExisting.value && (!sql.value.trim() || sql.value === procedureDraft.value)) {
+    sql.value = procedureTemplate(value, schema.value, name.value)
+    procedureDraft.value = sql.value
+  }
 })
 
 watch(() => selectedConnection.value?.database_name || '', (value, previous) => {
@@ -159,14 +184,62 @@ watch(() => props.command, async (command) => {
   openedAsEdit.value = command.type === 'edit'
   error.value = ''
   note.value = ''
+  description.value = ''
+  objectId.value = ''
+  savedDescription.value = ''
+  procedureExisting.value = false
+  procedureDraft.value = ''
   if (command.type === 'edit' && command.name) {
     await loadDefinition()
   } else {
     baselineColumns.value = null
     columns.value = [blankColumn(true)]
     sql.value = ''
+    if (kind.value === 'procedure') {
+      sql.value = procedureTemplate(driver.value, schema.value, name.value)
+      procedureDraft.value = sql.value
+    }
   }
 }, { immediate: true })
+
+watch(kind, (value, previous) => {
+  if (value !== 'procedure' || !previous || previous === 'procedure' || procedureExisting.value) {
+    return
+  }
+  sql.value = procedureTemplate(driver.value, schema.value, name.value)
+  procedureDraft.value = sql.value
+})
+
+function onProcedureName(value) {
+  name.value = value
+  const next = setProcedureIdentity(sql.value, driver.value, schema.value, value.trim())
+  if (next !== sql.value) {
+    sql.value = next
+  }
+}
+
+function onProcedureSchema(value) {
+  schema.value = value
+  if (kind.value !== 'procedure' || !name.value.trim()) {
+    return
+  }
+  sql.value = setProcedureIdentity(sql.value, driver.value, value, name.value.trim())
+}
+
+function onProcedureSQL(value) {
+  if (value === sql.value) {
+    return
+  }
+  sql.value = value
+  const parsed = procedureName(value)
+  if (parsed && parsed !== name.value) {
+    name.value = parsed
+  }
+}
+
+function onProcedureParams(list) {
+  sql.value = applyProcedureParams(sql.value, driver.value, list)
+}
 
 function payload() {
   return {
@@ -214,6 +287,13 @@ async function loadDefinition() {
       kind: kind.value
     })).data
     sql.value = result.sql || ''
+    if (kind.value === 'procedure') {
+      description.value = result.description || ''
+      savedDescription.value = description.value
+      objectId.value = result.object_id || ''
+      procedureExisting.value = true
+      procedureDraft.value = ''
+    }
     if (result.schema) {
       schema.value = result.schema
     }
@@ -332,6 +412,83 @@ async function confirmAlter() {
   }
 }
 
+async function refreshProcedure() {
+  error.value = ''
+  note.value = ''
+  if (procedureExisting.value && name.value.trim()) {
+    await loadDefinition()
+    return
+  }
+  description.value = ''
+  savedDescription.value = ''
+  objectId.value = ''
+  sql.value = procedureTemplate(driver.value, schema.value, name.value)
+  procedureDraft.value = sql.value
+}
+
+async function saveProcedure() {
+  error.value = ''
+  note.value = ''
+  if (sqliteRoutine.value) {
+    error.value = 'SQLite 不支持在控制台创建存储过程'
+    return
+  }
+  if (!connectionID.value) {
+    error.value = '请选择连接'
+    return
+  }
+  const currentName = name.value.trim() || procedureName(sql.value)
+  if (!currentName) {
+    error.value = '请填写存储过程名称'
+    return
+  }
+  name.value = currentName
+  sql.value = setProcedureIdentity(sql.value, driver.value, schema.value, currentName)
+  let script = procedureSaveSQL(driver.value, sql.value, {
+    existing: procedureExisting.value,
+    schema: schema.value,
+    name: currentName
+  })
+  if (!script.trim()) {
+    error.value = '存储过程来源不能为空'
+    return
+  }
+  if (description.value !== savedDescription.value) {
+    const comment = procedureCommentSQL(driver.value, schema.value, currentName, description.value, procedureParams(sql.value))
+    if (comment) {
+      script = script.replace(/\s+$/, '')
+      if (!script.endsWith(';')) {
+        script += ';'
+      }
+      script += '\n' + comment + '\n'
+    }
+  }
+  if (!window.confirm(`将在目标库保存存储过程「${currentName}」。`)) {
+    return
+  }
+  pending.value = true
+  try {
+    const result = (await api('/api/catalog/apply', {
+      connection_id: connectionID.value,
+      sql: script
+    })).data
+    procedureExisting.value = true
+    savedDescription.value = description.value
+    note.value = `已保存存储过程，执行 ${result.statements} 条语句，耗时 ${result.duration_ms} ms`
+    emit('applied', {
+      connectionId: connectionID.value,
+      schema: schema.value,
+      name: currentName
+    })
+    await loadDefinition()
+    note.value = `已保存存储过程，执行 ${result.statements} 条语句，耗时 ${result.duration_ms} ms`
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    pending.value = false
+  }
+}
+
 async function apply() {
   error.value = ''
   if (!connectionID.value) {
@@ -364,7 +521,32 @@ async function apply() {
 </script>
 
 <template>
-  <div class="page">
+  <div class="page" :class="{ 'procedure-page': kind === 'procedure' }">
+    <ProcedureStudio
+      v-if="kind === 'procedure'"
+      :connections="connections"
+      :connection-id="connectionID"
+      :schema="schema"
+      :schema-hint="schemaHint"
+      :driver="driver"
+      :name="name"
+      :description="description"
+      :object-id="objectId"
+      :sql="sql"
+      :pending="pending"
+      :error="error"
+      :note="note"
+      :sqlite="sqliteRoutine"
+      @connection="onConnectionChange"
+      @update:schema="onProcedureSchema"
+      @update:name="onProcedureName"
+      @update:description="description = $event"
+      @update:sql="onProcedureSQL"
+      @update:params="onProcedureParams"
+      @refresh="refreshProcedure"
+      @save="saveProcedure"
+    />
+    <template v-else>
     <p v-if="error" class="notice">{{ error }}</p>
     <p v-if="note" class="notice ok">{{ note }}</p>
     <p v-if="sqliteRoutine" class="notice">SQLite 不支持在控制台创建存储过程或函数。</p>
@@ -483,5 +665,6 @@ async function apply() {
         </div>
       </form>
     </dialog>
+    </template>
   </div>
 </template>

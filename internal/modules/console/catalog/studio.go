@@ -57,6 +57,15 @@ func (r *Resource) Definition(ctx context.Context, search *CatalogSearch) (respo
 		}
 		return zero, apperrors.Business(10002, apperrors.KindInvalid, shared.PublicError("读取定义失败", "", err), err)
 	}
+	objectID := ""
+	description := ""
+	if kind == "procedure" || kind == "function" {
+		id, text, metaErr := shared.RoutineMeta(ctx, target.DB, target.Driver, schema, search.Name, kind)
+		if metaErr == nil {
+			objectID = id
+			description = text
+		}
+	}
 	columns := []CatalogColumnDraft{}
 	if kind == "table" {
 		items, err := shared.ListColumns(ctx, target.DB, target.Driver, schema, search.Name)
@@ -75,14 +84,16 @@ func (r *Resource) Definition(ctx context.Context, search *CatalogSearch) (respo
 		}
 	}
 	return response.OK(CatalogDefinitionResponse{
-		Driver:   target.Driver,
-		Schema:   schema,
-		Name:     search.Name,
-		Kind:     kind,
-		SQL:      sqlText,
-		Editable: true,
-		Note:     note,
-		Columns:  columns,
+		Driver:      target.Driver,
+		Schema:      schema,
+		Name:        search.Name,
+		Kind:        kind,
+		SQL:         sqlText,
+		Editable:    true,
+		Note:        note,
+		ObjectID:    objectID,
+		Description: description,
+		Columns:     columns,
 	}), nil
 }
 
