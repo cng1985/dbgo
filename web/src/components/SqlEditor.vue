@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { normalizeNewlines } from '../sqlError.js'
 import { highlightSQL, suggestSQL } from '../sqlEditor.js'
+import { readSuggestEnabled } from '../suggestPref.js'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -26,6 +27,7 @@ const open = ref(false)
 const active = ref(0)
 const menuStyle = ref({})
 const kindLabel = { keyword: '关键字', table: '表', column: '字段', schema: '模式' }
+const suggestOn = ref(readSuggestEnabled())
 let held = false
 
 const html = computed(() => highlightSQL(text.value, props.driver, props.tables))
@@ -87,7 +89,20 @@ function syncScroll() {
   }
 }
 
+function onSuggestPref(event) {
+  suggestOn.value = !!event.detail
+  if (!suggestOn.value) {
+    open.value = false
+    items.value = []
+  }
+}
+
 function refreshSuggest(force) {
+  if (!suggestOn.value) {
+    open.value = false
+    items.value = []
+    return
+  }
   if (!input.value) {
     return
   }
@@ -356,11 +371,13 @@ onMounted(() => {
   text.value = next
   window.addEventListener('scroll', onViewport, true)
   window.addEventListener('resize', onViewport)
+  window.addEventListener('dbgo-suggest', onSuggestPref)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('scroll', onViewport, true)
   window.removeEventListener('resize', onViewport)
+  window.removeEventListener('dbgo-suggest', onSuggestPref)
 })
 </script>
 
@@ -390,7 +407,7 @@ onBeforeUnmount(() => {
         @blur="onBlur"
         @contextmenu="onContextMenu"
       ></textarea>
-      <div v-if="!text" class="sql-placeholder">输入 SQL，Ctrl+Space 提示</div>
+      <div v-if="!text" class="sql-placeholder">{{ suggestOn ? '输入 SQL，Ctrl+Space 提示' : '输入 SQL' }}</div>
     </div>
     <Teleport to="body">
     <ul v-if="open && items.length" ref="menu" class="sql-suggest" role="listbox" :style="menuStyle">

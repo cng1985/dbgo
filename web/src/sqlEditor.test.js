@@ -117,6 +117,17 @@ test('语句边界、更新语句和标识符引用', () => {
   assert.equal(middle.to, 'select * from city'.length)
 })
 
+test('没有合适字段时不提示星号', () => {
+  assert.equal(at('select id from city where |').items.some((item) => item.label === '*'), false)
+  assert.equal(at('select id from city order by |').items.some((item) => item.label === '*'), false)
+  assert.equal(at('update city set |').items.some((item) => item.label === '*'), false)
+  assert.equal(at('select zz| from city').items.some((item) => item.label === '*'), false)
+  const bare = suggestSQL({ sql: 'select ', cursor: 'select '.length, driver: 'sqlite', tables: [], schema: 'main' })
+  assert.equal(bare.items.some((item) => item.label === '*'), false)
+  assert.equal(at('select | from city').items.some((item) => item.label === '*'), true)
+  assert.equal(at('select |').items.some((item) => item.label === '*'), false)
+})
+
 test('字符串和注释里不提示', () => {
   assert.equal(at("select 'sel|'").items.length, 0)
   assert.equal(at('select 1 -- sel|').items.length, 0)
