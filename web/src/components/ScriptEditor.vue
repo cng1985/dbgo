@@ -6,6 +6,7 @@ import { buildEditFields, fieldChanged, querySource, rowKeys, updateRowSQL } fro
 import { lineNumberAt, sqlErrorLine, translateErrorLine } from '../sqlError.js'
 import { cellPreview, cycleSort, formatCopiedCells, sortResultRows } from '../resultGrid.js'
 import SqlEditor from './SqlEditor.vue'
+import { readSuggestEnabled, writeSuggestEnabled } from '../suggestPref.js'
 
 const props = defineProps({
   tab: { type: Object, required: true },
@@ -34,6 +35,7 @@ const advice = ref(null)
 const optimizing = ref(false)
 const snippets = ref([])
 const snippetID = ref('')
+const suggestOn = ref(readSuggestEnabled())
 const editDialog = ref(null)
 const editFields = ref([])
 const editError = ref('')
@@ -369,7 +371,8 @@ function openEditorMenu(payload) {
       { label: '解释', run: () => explain(payload) },
       { label: 'AI 优化', disabled: !props.tab.connectionId, run: () => optimize(payload) },
       { label: '注释 / 取消注释', run: () => comment(payload) },
-      { label: '复制', run: () => copyText(chosenText(payload)) }
+      { label: '复制', run: () => copyText(chosenText(payload)) },
+      { label: (suggestOn.value ? '✓ ' : '') + '智能提示', run: () => writeSuggestEnabled(!suggestOn.value) }
     ]
   })
 }
@@ -553,16 +556,24 @@ watch(() => props.tab.schema, (value) => {
   }
 })
 
+function onSuggestPref(event) {
+  suggestOn.value = !!event.detail
+}
+
 onMounted(() => {
   loadHints(props.tab.schema || '')
   loadHistory()
   window.addEventListener('pointerdown', closeMenu)
+  window.addEventListener('dbgo-suggest', onSuggestPref)
   if (props.tab.autorun) {
     run()
   }
 })
 
-onBeforeUnmount(() => window.removeEventListener('pointerdown', closeMenu))
+onBeforeUnmount(() => {
+  window.removeEventListener('pointerdown', closeMenu)
+  window.removeEventListener('dbgo-suggest', onSuggestPref)
+})
 
 defineExpose({ run, format, explain, optimize })
 </script>
@@ -582,6 +593,7 @@ defineExpose({ run, format, explain, optimize })
         <option v-for="item in schemas" :key="item.name" :value="item.name">{{ item.name }}</option>
       </select>
       <label class="check"><input v-model="tab.readOnly" type="checkbox" /> 只读</label>
+      <label class="check"><input :checked="suggestOn" type="checkbox" aria-label="智能提示" @change="writeSuggestEnabled($event.target.checked)" /> 智能提示</label>
       <label class="check">最大行数 <input v-model.number="tab.maxRows" class="rows" type="number" min="1" max="1000" /></label>
       <button class="btn" type="button" :disabled="!tab.connectionId || hintPending" @click="loadHints(tab.schema)">刷新结构</button>
       <button class="btn" type="button" @click="format()">格式化</button>

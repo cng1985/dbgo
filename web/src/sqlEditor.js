@@ -165,8 +165,8 @@ function collectItems(ctx) {
     return items
   }
   if (ctx.mode === 'column') {
-    addStar(items, prefix)
-    const source = ctx.referenced.length ? ctx.referenced : (prefix ? allTables(ctx.catalog) : [])
+    const source = columnSource(ctx, prefix)
+    addStar(items, ctx, prefix, source)
     const ambiguous = source.length > 1
     addColumns(items, ctx, source, prefix, ambiguous)
     addKeywords(items, ctx, prefix ? keywordList(ctx.driver) : COLUMN_START, prefix, prefix ? 12 : 8)
@@ -216,8 +216,19 @@ function addMember(items, ctx, prefix) {
   }
 }
 
-function addStar(items, prefix) {
-  if (prefix && prefix !== '*') {
+function columnSource(ctx, prefix) {
+  if (ctx.referenced.length) {
+    return ctx.referenced
+  }
+  return prefix ? allTables(ctx.catalog) : []
+}
+
+function addStar(items, ctx, prefix, source) {
+  if (ctx.clause !== 'select' || (prefix && prefix !== '*')) {
+    return
+  }
+  const known = source.some((table) => (table.columns || []).some((column) => column?.name))
+  if (!known) {
     return
   }
   items.push({ kind: 'column', label: '*', detail: '全部字段', insert: '*', section: '字段' })

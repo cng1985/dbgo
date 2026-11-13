@@ -5,6 +5,7 @@ import { api, connectionTarget, driverLabel, listConnections } from '../api'
 import { useSession } from '../stores/session'
 import { selectStar } from '../sqlText.js'
 import { applyTabClose } from '../tabClose.js'
+import { readSuggestEnabled, writeSuggestEnabled } from '../suggestPref.js'
 import Icon from '../components/Icon.vue'
 import Navigator from '../components/Navigator.vue'
 import ScriptEditor from '../components/ScriptEditor.vue'
@@ -77,6 +78,7 @@ const passwordError = ref('')
 const navOpen = ref(localStorage.getItem('dbgo-nav-open') !== '0')
 const navWidth = ref(Math.min(560, Math.max(200, Number(localStorage.getItem('dbgo-nav-width')) || 280)))
 const showResults = ref(true)
+const suggestOn = ref(readSuggestEnabled())
 const editorMap = new Map()
 const zone = new Intl.DateTimeFormat('zh-CN', { timeZoneName: 'short' })
   .formatToParts(new Date())
@@ -158,6 +160,7 @@ const menus = computed(() => [
       { label: '解释', disabled: !sqlActive.value, run: () => editorAction('explain') },
       { label: 'AI 优化', disabled: !sqlActive.value, run: () => editorAction('optimize') },
       { label: '新建脚本', run: () => newScript() },
+      { label: (suggestOn.value ? '✓ ' : '') + '智能提示', run: () => writeSuggestEnabled(!suggestOn.value) },
       { label: '代码段', run: () => openTool('snippets') },
       { label: sqlActive.value && activeTab.value.readOnly ? '取消只读' : '设为只读', disabled: !sqlActive.value, run: toggleReadOnly },
       { label: showResults.value ? '隐藏结果' : '显示结果', run: () => { showResults.value = !showResults.value } }
@@ -709,6 +712,10 @@ function design(kind, node, objectName = '', extra = {}) {
   })
 }
 
+function onSuggestPref(event) {
+  suggestOn.value = !!event.detail
+}
+
 function editorAction(name) {
   const tab = activeTab.value
   if (tab?.kind !== 'sql') {
@@ -922,6 +929,7 @@ watch(() => route.path, (path) => {
 
 onMounted(async () => {
   window.addEventListener('dbgo-unauthorized', onUnauthorized)
+  window.addEventListener('dbgo-suggest', onSuggestPref)
   window.addEventListener('pointerdown', onPointer)
   window.addEventListener('keydown', onKeydown)
   if (!restore()) {
@@ -938,6 +946,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('dbgo-unauthorized', onUnauthorized)
+  window.removeEventListener('dbgo-suggest', onSuggestPref)
   window.removeEventListener('pointerdown', onPointer)
   window.removeEventListener('keydown', onKeydown)
   window.clearTimeout(saveTimer)
